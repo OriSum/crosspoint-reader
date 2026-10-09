@@ -134,44 +134,6 @@ FetchResult httpStatusToFetchResult(int code) {
   return FetchResult::NetworkError;
 }
 
-// Format `today + daysAhead` as YYYY-MM-DD in the device's local timezone.
-// Caller must have already verified the clock is set (via NTP).
-std::string formatLocalDate(int daysAhead) {
-  time_t now = time(nullptr);
-  struct tm tm;
-  localtime_r(&now, &tm);
-  tm.tm_mday += daysAhead;
-  mktime(&tm);  // normalises across month/year boundaries
-  char buf[11];
-  strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
-  return std::string(buf);
-}
-
-// Days from today to the upcoming Monday (1..7). ISO week ends on Sunday,
-// so the strict `due before:` cutoff for "this week" is next Monday. If
-// today is Monday we want a full week ahead, not zero — 0 maps to 7.
-int daysUntilNextMonday() {
-  time_t now = time(nullptr);
-  struct tm tm;
-  localtime_r(&now, &tm);
-  // tm_wday: 0=Sun, 1=Mon, ..., 6=Sat
-  int days = (1 - tm.tm_wday + 7) % 7;
-  return days == 0 ? 7 : days;
-}
-
-// First day of next calendar month, YYYY-MM-DD.
-std::string firstOfNextMonth() {
-  time_t now = time(nullptr);
-  struct tm tm;
-  localtime_r(&now, &tm);
-  tm.tm_mon += 1;
-  tm.tm_mday = 1;
-  mktime(&tm);  // normalises December → January roll-over
-  char buf[11];
-  strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
-  return std::string(buf);
-}
-
 // Percent-encode for use in a URL query value.
 std::string urlEncode(const std::string& s) {
   std::string out;
@@ -191,50 +153,14 @@ std::string urlEncode(const std::string& s) {
   return out;
 }
 
-// Build the unencoded Todoist filter query for the given two-axis selection.
-//
-// Each axis emits an independent fragment, OR-combined. The date fragment
-// is responsible for excluding overdue (range filters add `due after:
-// yesterday`), so the overdue fragment is purely additive — None means
-// "don't add an overdue clause."
-std::string buildQuery(DateFilter dateF, OverdueFilter overdueF) {
-  std::string date;
-  switch (dateF) {
-    case DateFilter::None:
-      break;
-    case DateFilter::Today:
-      date = "today";
-      break;
-    case DateFilter::ThisWeek:
-      date = "due after: yesterday & due before: " + formatLocalDate(daysUntilNextMonday());
-      break;
-    case DateFilter::ThisMonth:
-      date = "due after: yesterday & due before: " + firstOfNextMonth();
-      break;
-  }
-
-  std::string overdue;
-  switch (overdueF) {
-    case OverdueFilter::None:
-      break;
-    case OverdueFilter::Last7Days:
-      overdue = "overdue & due after: -7 days";
-      break;
-    case OverdueFilter::All:
-      overdue = "overdue";
-      break;
-  }
-
-  if (date.empty() && overdue.empty()) return "today";  // degenerate fallback
-  if (date.empty()) return overdue;
-  if (overdue.empty()) return date;
-  return "(" + date + ") | (" + overdue + ")";
-}
+// Fixed query for the v1 scope: today's tasks plus overdue ones. The
+// calendar-bounded filter axes (this week / this month) were dropped with
+// the rest of the over-engineered config surface.
+std::string buildQuery() { return "(today) | (overdue & due after: -7 days)"; }
 
 }  // namespace
 
-FetchResult TodoistClient::fetch(const std::string& apiToken, DateFilter dateFilter, OverdueFilter overdueFilter,
-                                 std::vector<TodoistTask>& outTasks) {
+FetchResult TodoistClient::fetch(const std::string& apiToken, std::vector<TodoistTask>& outTasks) {
   outTasks.clear();
   outTasks.reserve(kMaxTasks);
 
@@ -243,7 +169,7 @@ FetchResult TodoistClient::fetch(const std::string& apiToken, DateFilter dateFil
     return FetchResult::InvalidToken;
   }
 
-  const std::string query = buildQuery(dateFilter, overdueFilter);
+  const std::string query = buildQuery();
   const std::string url = std::string(kEndpointBase) + urlEncode(query);
   LOG_DBG("TDST", "Query: %s", query.c_str());
 

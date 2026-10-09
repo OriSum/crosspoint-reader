@@ -60,10 +60,7 @@ sensible default.
   "api_token": "PASTE_YOUR_TOKEN_HERE",
   "sleep_screen_enabled": true,
   "activity_orientation": "portrait",
-  "snapshot_orientation": "landscape_cw",
-  "date_filter": "today",
-  "overdue_filter": "last_7_days",
-  "gmt_offset": -3
+  "snapshot_orientation": "landscape_cw"
 }
 ```
 
@@ -75,12 +72,10 @@ sensible default.
 | `sleep_screen_enabled` | bool | `false` | When `true` and a snapshot exists, the sleep screen renders the cached task list instead of the default rotation. |
 | `activity_orientation` | string | `"portrait"` | `"portrait"`, `"portrait_inverted"`, `"landscape_cw"`, `"landscape_ccw"` — orientation used while you're viewing the activity. |
 | `snapshot_orientation` | string | `"portrait"` | Same set as above. The orientation the saved sleep-screen BMP is rendered in. Only matters if `sleep_screen_enabled` is `true`. |
-| `date_filter` | string | `"today"` | `"none"`, `"today"`, `"this_week"`, `"this_month"`. |
-| `overdue_filter` | string | `"last_7_days"` | `"none"`, `"last_7_days"`, `"all"`. Combined additively with `date_filter`. |
-| `gmt_offset` | int | `0` | Whole-hour offset from GMT, range `-12..+14`. Out-of-range values clamp on load. |
 
 The file is bounded at 4 KB — parsing aborts and the integration disables
-itself if the file is larger.
+itself if the file is larger. Unknown keys from older builds of this
+branch are ignored on load and dropped on the next persist.
 
 ---
 
@@ -148,13 +143,21 @@ each with atomic write-through to the file:
 | Sleep screen | Toggles `sleep_screen_enabled`. |
 | Activity orientation | Cycles `activity_orientation` (P → LCW → PI → LCCW). |
 | Sleep screen orientation | Cycles `snapshot_orientation`. |
-| Date filter | Cycles `date_filter` (None / Today / This week / This month). |
-| Overdue | Cycles `overdue_filter` (None / Last 7 days / All). |
-| Timezone | Cycles `gmt_offset` from −12 through +14 and wraps. |
 | Forget Todoist | Removes `todoist.json`, the snapshot BMP and meta, and any orphaned `.tmp` files. **No confirmation prompt — single press wipes the token.** |
 
 The token itself can only be set by editing `todoist.json` on the SD card.
 On-device token entry is on the v2 wishlist.
+
+---
+
+## What the activity shows
+
+A single fixed view: a "Todoist" header with an `Updated HH:MM` stamp from
+the last successful fetch, and the task list below it. The query is fixed —
+today's tasks plus overdue ones — so there are no filter, timezone, or
+layout settings to manage. Each row shows a marker glyph (bullet for
+today, `!` for overdue, `›` for future-dated), the task title, and a
+dd/mm date suffix when the task carries a due date.
 
 ---
 
@@ -223,8 +226,8 @@ TDST: tryRenderTodoistSleepScreen: <reason>
 
 ### Stale snapshot
 
-The header on the activity reads `Updated dd/mm - HH:MM` so you can spot a
-stale capture at a glance. Press **Confirm** to refresh; a fresh fetch
+The header on the activity reads `Updated HH:MM` so you can spot a stale
+capture at a glance. Press **Confirm** to refresh; a fresh fetch
 overwrites both the BMP and the meta.
 
 ---

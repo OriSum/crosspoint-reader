@@ -3,7 +3,9 @@
 **Date:** 2026-05-04
 **Project:** CrossPoint Reader (Xteink X4, ESP32-C3)
 **Scope:** Personal fork; modular enough that other users can supply their own API key.
-**Status:** Design approved, awaiting user review before implementation planning.
+**Status:** Revised 2026-10-09 — scope narrowed to the core feature. Weather,
+geolocation, timezone, date-filter, date-format, and design-mode subsystems
+were removed from the design; the spec below reflects the reduced v1.
 
 ---
 
@@ -24,7 +26,9 @@ Refresh is **explicitly user-driven** — there is no background polling, no sch
 ## 3. Non-goals (v1)
 
 - Mark-complete, add, edit, or delete tasks (read-only only).
-- Filters other than "today".
+- Filters other than the fixed "today + overdue" query.
+- Weather, geolocation, timezone, date-format, or layout-mode settings —
+  all removed after an earlier draft over-scoped the integration.
 - Background / scheduled refresh.
 - Multiple Todoist accounts.
 - An on-device API token entry UI (token is placed on SD by the user).
@@ -209,7 +213,6 @@ Both orientation fields default to `"portrait"`. Unknown keys are ignored. Missi
 | `STR_TODOIST` | "Todoist" |
 | `STR_TODOIST_FETCHING` | "Fetching tasks…" |
 | `STR_TODOIST_NO_TOKEN` | "No Todoist token configured" |
-| `STR_TODOIST_NO_SD` | "SD card unavailable" |
 | `STR_TODOIST_OFFLINE` | "WiFi unavailable" |
 | `STR_TODOIST_FETCH_FAILED` | "Could not fetch tasks" |
 | `STR_TODOIST_NO_TASKS` | "All clear today" |
@@ -217,7 +220,9 @@ Both orientation fields default to `"portrait"`. Unknown keys are ignored. Missi
 | `STR_TODOIST_ACTIVITY_ORIENTATION` | "Activity orientation" |
 | `STR_TODOIST_SNAPSHOT_ORIENTATION` | "Sleep screen orientation" |
 | `STR_TODOIST_FORGET` | "Forget Todoist" |
-| `STR_TODOIST_TODAY_HEADER` | "Today — Updated %02d:%02d" |
+| `STR_TODOIST_TODAY_HEADER` | "Updated %02d:%02d" |
+| `STR_TODOIST_INVALID_TOKEN` | "Invalid token" |
+| `STR_TODOIST_RATE_LIMITED` | "Rate limited - try later" |
 
 Other languages fall back to English per existing project convention.
 
@@ -243,9 +248,9 @@ Following `LOG_ERR + fallback` (CLAUDE.md "Error Handling Philosophy"). Active v
 | `todoist.json` missing / malformed / no token | `STR_TODOIST_NO_TOKEN` |
 | SD unreachable | `STR_TODOIST_NO_SD` |
 | WiFi credentials missing or AP unreachable (15s) | `STR_TODOIST_OFFLINE` |
-| HTTPS 401 / 403 | `STR_TODOIST_FETCH_FAILED` "invalid token" |
-| HTTPS 429 | `STR_TODOIST_FETCH_FAILED` "rate limited" |
-| HTTPS 5xx / timeout / TLS handshake failure | `STR_TODOIST_FETCH_FAILED` (specific sub-line) |
+| HTTPS 401 / 403 | `STR_TODOIST_INVALID_TOKEN` |
+| HTTPS 429 | `STR_TODOIST_RATE_LIMITED` |
+| HTTPS 5xx / timeout / TLS handshake failure | `STR_TODOIST_FETCH_FAILED` |
 | Empty tasks array | `STR_TODOIST_NO_TASKS`, snapshot still captured |
 | JSON parse error | `STR_TODOIST_FETCH_FAILED` "unexpected response" |
 | `malloc` for snapshot buffer fails | LOG_ERR; skip snapshot; active view unaffected |
@@ -343,6 +348,8 @@ Stack: rendering uses no large local variables. Fixed-size `char[96]` per-task l
 - Background refresh on a long timer (battery cost — only if user explicitly opts in).
 - On-device token entry via `KeyboardEntryActivity` (slow but self-contained).
 - Web settings page integration for token entry.
+- Weather / location panels (removed from v1 after over-scoping; would need
+  their own design pass).
 
 ## 13. Decisions log
 

@@ -19,12 +19,12 @@ enum class FetchResult {
 
 class TodoistClient {
  public:
-  // Synchronous fetch. Caller must guarantee WiFi is up and that the system
-  // clock is set (NTP) — calendar-bounded date filters compute their cutoff
-  // from time(nullptr). Reserves out capacity to a sane upper bound and
-  // truncates extras silently. Never blocks indefinitely (15s HTTP timeout).
-  static FetchResult fetch(const std::string& apiToken, DateFilter dateFilter, OverdueFilter overdueFilter,
-                           std::vector<TodoistTask>& outTasks);
+  // Synchronous fetch of today's tasks (plus overdue, per the fixed
+  // "today | overdue" query). Caller must guarantee WiFi is up and that the
+  // system clock is set (NTP). Reserves out capacity to a sane upper bound
+  // and truncates extras silently. Never blocks indefinitely (15s HTTP
+  // timeout).
+  static FetchResult fetch(const std::string& apiToken, std::vector<TodoistTask>& outTasks);
 };
 
 }  // namespace todoist
