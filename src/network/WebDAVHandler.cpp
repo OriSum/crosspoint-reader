@@ -1,10 +1,11 @@
 #include "WebDAVHandler.h"
 
-#include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
-#include <esp_task_wdt.h>
+
+#include "util/BookCacheUtils.h"
+#include "util/TaskWatchdog.h"
 
 namespace {
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
@@ -66,7 +67,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     _putExisted = Storage.exists(_putPath.c_str());
 
     if (_putExisted) {
-      FsFile existing = Storage.open(_putPath.c_str());
+      HalFile existing = Storage.open(_putPath.c_str());
       if (existing && existing.isDirectory()) {
         existing.close();
         _putOk = false;
@@ -83,7 +84,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
 
   } else if (raw.status == RAW_WRITE) {
     if (_putFile && _putOk) {
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       size_t written = _putFile.write(raw.buf, raw.currentSize);
       if (written != raw.currentSize) {
         _putOk = false;
@@ -95,7 +96,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     if (_putOk) {
       String tempPath = _putPath + ".davtmp";
       if (_putExisted) Storage.remove(_putPath.c_str());
-      FsFile tmp = Storage.open(tempPath.c_str());
+      HalFile tmp = Storage.open(tempPath.c_str());
       if (tmp) {
         _putOk = tmp.rename(_putPath.c_str());
         tmp.close();
@@ -181,7 +182,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
     return;
   }
 
-  FsFile root = Storage.open(path.c_str());
+  HalFile root = Storage.open(path.c_str());
   if (!root) {
     if (path == "/") {
       // Root should always work — send minimal response
@@ -220,7 +221,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
 
   // If depth > 0 and it's a directory, list children
   if (depth > 0) {
-    FsFile file = root.openNextFile();
+    HalFile file = root.openNextFile();
     char name[500];
     while (file) {
       file.getName(name, sizeof(name));
@@ -251,7 +252,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
 
       file.close();
       yield();
-      esp_task_wdt_reset();
+      resetTaskWatchdogIfSubscribed();
       file = root.openNextFile();
     }
   }
@@ -310,7 +311,7 @@ void WebDAVHandler::handleGet(WebServer& s) {
     return;
   }
 
-  FsFile file = Storage.open(path.c_str());
+  HalFile file = Storage.open(path.c_str());
   if (!file) {
     s.send(500, "text/plain", "Failed to open file");
     return;
@@ -323,12 +324,29 @@ void WebDAVHandler::handleGet(WebServer& s) {
   }
 
   String contentType = getMimeType(path);
-  s.setContentLength(file.size());
+  const size_t fileSize = file.size();
+  file.close();
+
+  s.setContentLength(fileSize);
   s.send(200, contentType.c_str(), "");
 
+  // **This used to be `client.write(file)`, and it sent exactly one byte.**
+  //
+  // It worked while `Storage.open()` returned an SdFat `FsFile`, which derives
+  // from `Stream`: the call matched `NetworkClient::write(Stream&)` and streamed
+  // the file. `HalFile` derives from `Print`, not `Stream` (lib/hal/HalStorage.h),
+  // so that overload stopped matching, the compiler took `HalFile::operator bool()`
+  // instead, promoted the `true` to `uint8_t`, and wrote a single `0x01`. **The
+  // call site never changed; its meaning did**, and nothing warned because every
+  // step is a legal conversion.
+  //
+  // The reply still carried the real Content-Length, so a client waited for a
+  // body that never arrived and reported a truncated transfer rather than an
+  // error, which is why this reads as a flaky network rather than a server bug.
   NetworkClient client = s.client();
-  client.write(file);
-  file.close();
+  if (!Storage.readFileToStream(path.c_str(), client)) {
+    LOG_ERR("DAV", "GET %s: failed to stream file", path.c_str());
+  }
 }
 
 // ── HEAD ─────────────────────────────────────────────────────────────────────
@@ -347,7 +365,7 @@ void WebDAVHandler::handleHead(WebServer& s) {
     return;
   }
 
-  FsFile file = Storage.open(path.c_str());
+  HalFile file = Storage.open(path.c_str());
   if (!file) {
     s.send(500, "text/plain", "");
     return;
@@ -384,7 +402,7 @@ void WebDAVHandler::handlePut(WebServer& s) {
     return;
   }
 
-  clearEpubCacheIfNeeded(path);
+  clearBookCache(path.c_str());
   s.send(_putExisted ? 204 : 201);
   LOG_DBG("DAV", "PUT complete: %s", path.c_str());
 }
@@ -410,7 +428,7 @@ void WebDAVHandler::handleDelete(WebServer& s) {
     return;
   }
 
-  FsFile file = Storage.open(path.c_str());
+  HalFile file = Storage.open(path.c_str());
   if (!file) {
     s.send(500, "text/plain", "Failed to open");
     return;
@@ -418,7 +436,7 @@ void WebDAVHandler::handleDelete(WebServer& s) {
 
   if (file.isDirectory()) {
     // Check if directory is empty
-    FsFile entry = file.openNextFile();
+    HalFile entry = file.openNextFile();
     if (entry) {
       entry.close();
       file.close();
@@ -433,7 +451,7 @@ void WebDAVHandler::handleDelete(WebServer& s) {
     }
   } else {
     file.close();
-    clearEpubCacheIfNeeded(path);
+    clearBookCache(path.c_str());
     if (Storage.remove(path.c_str())) {
       s.send(204);
     } else {
@@ -536,13 +554,13 @@ void WebDAVHandler::handleMove(WebServer& s) {
     Storage.remove(dstPath.c_str());
   }
 
-  FsFile file = Storage.open(srcPath.c_str());
+  HalFile file = Storage.open(srcPath.c_str());
   if (!file) {
     s.send(500, "text/plain", "Failed to open source");
     return;
   }
 
-  clearEpubCacheIfNeeded(srcPath);
+  clearBookCache(srcPath.c_str());
   bool success = file.rename(dstPath.c_str());
   file.close();
 
@@ -582,7 +600,7 @@ void WebDAVHandler::handleCopy(WebServer& s) {
     return;
   }
 
-  FsFile srcFile = Storage.open(srcPath.c_str());
+  HalFile srcFile = Storage.open(srcPath.c_str());
   if (!srcFile) {
     s.send(500, "text/plain", "Failed to open source");
     return;
@@ -616,7 +634,7 @@ void WebDAVHandler::handleCopy(WebServer& s) {
     Storage.remove(dstPath.c_str());
   }
 
-  FsFile dstFile;
+  HalFile dstFile;
   if (!Storage.openFileForWrite("DAV", dstPath, dstFile)) {
     srcFile.close();
     s.send(500, "text/plain", "Failed to create destination");
@@ -627,7 +645,7 @@ void WebDAVHandler::handleCopy(WebServer& s) {
   uint8_t buf[4096];
   bool copyOk = true;
   while (srcFile.available()) {
-    esp_task_wdt_reset();
+    resetTaskWatchdogIfSubscribed();
     int bytesRead = srcFile.read(buf, sizeof(buf));
     if (bytesRead <= 0) break;
     size_t written = dstFile.write(buf, bytesRead);
@@ -797,14 +815,7 @@ bool WebDAVHandler::getOverwrite(WebServer& s) const {
   return true;  // Default is T
 }
 
-void WebDAVHandler::clearEpubCacheIfNeeded(const String& path) const {
-  if (FsHelpers::hasEpubExtension(path)) {
-    Epub(path.c_str(), "/.crosspoint").clearCache();
-    LOG_DBG("DAV", "Cleared epub cache for: %s", path.c_str());
-  }
-}
-
-String WebDAVHandler::getMimeType(const String& path) const {
+String WebDAVHandler::getMimeType(const String& path) {
   if (FsHelpers::hasEpubExtension(path)) return "application/epub+zip";
   if (FsHelpers::checkFileExtension(path, ".pdf")) return "application/pdf";
   if (FsHelpers::hasTxtExtension(path)) return "text/plain";

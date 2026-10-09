@@ -1,13 +1,14 @@
 #pragma once
 
 #include <functional>
-#include <vector>
+#include <initializer_list>
 
 #include "MappedInputManager.h"
 
 class ButtonNavigator final {
   using Callback = std::function<void()>;
-  using Buttons = std::vector<MappedInputManager::Button>;
+  // Borrowed lists are consumed synchronously and never retained.
+  using Buttons = std::initializer_list<MappedInputManager::Button>;
 
   const uint16_t continuousStartMs;
   const uint16_t continuousIntervalMs;
@@ -26,11 +27,10 @@ class ButtonNavigator final {
   void onPrevious(const Callback& callback);
   void onPressAndContinuous(const Buttons& buttons, const Callback& callback);
 
-  void onNextPress(const Callback& callback);
-  void onPreviousPress(const Callback& callback);
-  void onPress(const Buttons& buttons, const Callback& callback);
+  static void onNextPress(const Callback& callback);
+  static void onPreviousPress(const Callback& callback);
+  static void onPress(const Buttons& buttons, const Callback& callback);
 
-  void onNextRelease(const Callback& callback);
   void onPreviousRelease(const Callback& callback);
   void onRelease(const Buttons& buttons, const Callback& callback);
 
@@ -44,10 +44,14 @@ class ButtonNavigator final {
   [[nodiscard]] static int nextPageIndex(int currentIndex, int totalItems, int itemsPerPage);
   [[nodiscard]] static int previousPageIndex(int currentIndex, int totalItems, int itemsPerPage);
 
+  // Navigation uses the logical NavNext / NavPrevious buttons; MappedInputManager::mapButton resolves
+  // them to physical buttons and applies any orientation-based direction swap, so this stays settings-free.
   [[nodiscard]] static Buttons getNextButtons() {
-    return {MappedInputManager::Button::Down, MappedInputManager::Button::Right};
+    static constexpr Buttons buttons = {MappedInputManager::Button::NavNext};
+    return buttons;
   }
   [[nodiscard]] static Buttons getPreviousButtons() {
-    return {MappedInputManager::Button::Up, MappedInputManager::Button::Left};
+    static constexpr Buttons buttons = {MappedInputManager::Button::NavPrevious};
+    return buttons;
   }
 };
