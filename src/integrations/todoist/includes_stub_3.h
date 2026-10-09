@@ -1,0 +1,32 @@
+#include <Arduino.h>
+#include <Epub.h>
+#include <FontCacheManager.h>
+#include <FontDecompressor.h>
+#include <GfxRenderer.h>
+#include <HalDisplay.h>
+#include <HalGPIO.h>
+#include <HalPowerManager.h>
+#include <HalStorage.h>
+#include <HalSystem.h>
+#include <HalTiltSensor.h>
+#include <I18n.h>
+#include <Logging.h>
+#include <SPI.h>
+#include <builtinFonts/all.h>
+
+#include <cstring>
+
+#include "CrossPointSettings.h"
+#include "CrossPointState.h"
+#include "KOReaderCredentialStore.h"
+#include "MappedInputManager.h"
+#include "OpdsServerStore.h"
+#include "RecentBooksStore.h"
+#include "activities/Activity.h"
+#include "activities/ActivityManager.h"
+#include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
+#include "integrations/todoist/TodoistConfig.h"
+#include "util/ButtonNavigator.h"
+#include "util/ScreenshotUtil.h"

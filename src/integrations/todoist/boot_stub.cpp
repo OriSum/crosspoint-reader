@@ -1,16 +1,7 @@
-#include "integrations/todoist/TodoistConfig.h"
-
 #include <Arduino.h>
 
-void setup() {
-  HalSystem::begin();
+#include "TodoistConfig.h"
 
-  // Minimal boot initialization. We intentionally keep this side-effect free but allow
-  // the Todoist config to load at boot time so the app can access the token immediately.
-  // The rest of the app boot flow is unchanged.
+void todoist_boot_init() {
   TODOIST_CONFIG.loadFromFile();
-}
-
-void loop() {
-  delay(10);
 }
