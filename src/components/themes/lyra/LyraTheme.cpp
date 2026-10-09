@@ -15,7 +15,6 @@
 #include "components/UITheme.h"
 #include "components/icons/blocks.h"
 #include "components/icons/book.h"
-#include "components/icons/book24.h"
 #include "components/icons/bookmark.h"
 #include "components/icons/checklist.h"
 #include "components/icons/cover.h"

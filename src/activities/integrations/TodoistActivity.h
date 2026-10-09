@@ -1,16 +1,16 @@
 #pragma once
 
-#include "activities/Activity.h"
-#include "MappedInputManager.h"
-#include "integrations/todoist/TodoistClient.h"
-#include "integrations/todoist/TodoistTask.h"
-#include "integrations/weather/WeatherTypes.h"
-#include "util/ButtonNavigator.h"
-
 #include <GfxRenderer.h>
 #include <I18n.h>
 
 #include <vector>
+
+#include "MappedInputManager.h"
+#include "activities/Activity.h"
+#include "integrations/todoist/TodoistClient.h"
+#include "integrations/todoist/TodoistTask.h"
+#include "integrations/weather/WeatherTypes.h"
+#include "util/ButtonNavigator.h"
 
 class TodoistActivity : public Activity {
  public:
@@ -24,7 +24,7 @@ class TodoistActivity : public Activity {
 
  private:
   enum class State {
-    Loading,        // initial fetch in progress / awaiting WiFi
+    Loading,  // initial fetch in progress / awaiting WiFi
     ShowingTasks,
     ShowingError,
   };
@@ -60,8 +60,7 @@ class TodoistActivity : public Activity {
   // vertical band (top, height) and horizontal band (tileX, tileWidth)
   // already adjusted for the design's header and any landscape hint
   // reserve. Returns nothing — updates _lastVisibleIndex as a side effect.
-  void drawTaskRows(int contentTop, int contentHeight, int tileX, int tileWidth,
-                    bool drawHints, int pageWidth);
+  void drawTaskRows(int contentTop, int contentHeight, int tileX, int tileWidth, bool drawHints, int pageWidth);
 
   void captureSnapshotIfNeeded();
   bool writeSnapshotMeta(GfxRenderer::Orientation o);

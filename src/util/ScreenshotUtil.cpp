@@ -102,8 +102,7 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
 }
 
 bool ScreenshotUtil::saveFramebufferAsBmpOriented(const char* filename, const uint8_t* framebuffer, int panelWidth,
-                                                  int panelHeight,
-                                                  GfxRenderer::Orientation orientation) {
+                                                  int panelHeight, GfxRenderer::Orientation orientation) {
   if (!framebuffer) return false;
 
   const bool isPortrait = (orientation == GfxRenderer::Portrait || orientation == GfxRenderer::PortraitInverted);
@@ -119,7 +118,7 @@ bool ScreenshotUtil::saveFramebufferAsBmpOriented(const char* filename, const ui
     }
   }
 
-  FsFile file;
+  HalFile file;
   if (!Storage.openFileForWrite("SCR", filename, file)) {
     LOG_ERR("SCR", "Failed to save oriented BMP");
     return false;

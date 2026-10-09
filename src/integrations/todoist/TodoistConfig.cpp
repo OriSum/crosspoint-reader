@@ -18,10 +18,14 @@ constexpr const char* kSnapshotMetaTmpPath = "/.crosspoint/todoist_sleep.meta.tm
 
 const char* orientationToString(GfxRenderer::Orientation o) {
   switch (o) {
-    case GfxRenderer::Orientation::Portrait: return "portrait";
-    case GfxRenderer::Orientation::PortraitInverted: return "portrait_inverted";
-    case GfxRenderer::Orientation::LandscapeClockwise: return "landscape_cw";
-    case GfxRenderer::Orientation::LandscapeCounterClockwise: return "landscape_ccw";
+    case GfxRenderer::Orientation::Portrait:
+      return "portrait";
+    case GfxRenderer::Orientation::PortraitInverted:
+      return "portrait_inverted";
+    case GfxRenderer::Orientation::LandscapeClockwise:
+      return "landscape_cw";
+    case GfxRenderer::Orientation::LandscapeCounterClockwise:
+      return "landscape_ccw";
   }
   return "portrait";
 }
@@ -37,37 +41,44 @@ GfxRenderer::Orientation orientationFromString(const char* s, GfxRenderer::Orien
 
 const char* dateFilterToString(DateFilter f) {
   switch (f) {
-    case DateFilter::None:      return "none";
-    case DateFilter::Today:     return "today";
-    case DateFilter::ThisWeek:  return "this_week";
-    case DateFilter::ThisMonth: return "this_month";
+    case DateFilter::None:
+      return "none";
+    case DateFilter::Today:
+      return "today";
+    case DateFilter::ThisWeek:
+      return "this_week";
+    case DateFilter::ThisMonth:
+      return "this_month";
   }
   return "today";
 }
 
 DateFilter dateFilterFromString(const char* s, DateFilter fallback) {
   if (!s) return fallback;
-  if (strcmp(s, "none") == 0)       return DateFilter::None;
-  if (strcmp(s, "today") == 0)      return DateFilter::Today;
-  if (strcmp(s, "this_week") == 0)  return DateFilter::ThisWeek;
+  if (strcmp(s, "none") == 0) return DateFilter::None;
+  if (strcmp(s, "today") == 0) return DateFilter::Today;
+  if (strcmp(s, "this_week") == 0) return DateFilter::ThisWeek;
   if (strcmp(s, "this_month") == 0) return DateFilter::ThisMonth;
   return fallback;
 }
 
 const char* overdueFilterToString(OverdueFilter f) {
   switch (f) {
-    case OverdueFilter::None:      return "none";
-    case OverdueFilter::Last7Days: return "last_7_days";
-    case OverdueFilter::All:       return "all";
+    case OverdueFilter::None:
+      return "none";
+    case OverdueFilter::Last7Days:
+      return "last_7_days";
+    case OverdueFilter::All:
+      return "all";
   }
   return "last_7_days";
 }
 
 OverdueFilter overdueFilterFromString(const char* s, OverdueFilter fallback) {
   if (!s) return fallback;
-  if (strcmp(s, "none") == 0)        return OverdueFilter::None;
+  if (strcmp(s, "none") == 0) return OverdueFilter::None;
   if (strcmp(s, "last_7_days") == 0) return OverdueFilter::Last7Days;
-  if (strcmp(s, "all") == 0)         return OverdueFilter::All;
+  if (strcmp(s, "all") == 0) return OverdueFilter::All;
   return fallback;
 }
 
@@ -85,36 +96,31 @@ DateFormat dateFormatFromString(const char* s, DateFormat fallback) {
 DesignMode designModeFromString(const char* s, DesignMode fallback) {
   if (!s) return fallback;
   if (strcmp(s, "minimal") == 0) return DesignMode::Minimal;
-  if (strcmp(s, "daily") == 0)   return DesignMode::Daily;
+  if (strcmp(s, "daily") == 0) return DesignMode::Daily;
   return fallback;
 }
 
-weather::TemperatureUnit temperatureUnitFromString(const char* s,
-                                                   weather::TemperatureUnit fallback) {
+weather::TemperatureUnit temperatureUnitFromString(const char* s, weather::TemperatureUnit fallback) {
   if (!s) return fallback;
-  if (strcmp(s, "celsius") == 0)    return weather::TemperatureUnit::Celsius;
+  if (strcmp(s, "celsius") == 0) return weather::TemperatureUnit::Celsius;
   if (strcmp(s, "fahrenheit") == 0) return weather::TemperatureUnit::Fahrenheit;
   return fallback;
 }
 
-const char* locationModeToString(LocationMode m) {
-  return m == LocationMode::Manual ? "manual" : "auto";
-}
+const char* locationModeToString(LocationMode m) { return m == LocationMode::Manual ? "manual" : "auto"; }
 
 LocationMode locationModeFromString(const char* s, LocationMode fallback) {
   if (!s) return fallback;
-  if (strcmp(s, "auto") == 0)   return LocationMode::Auto;
+  if (strcmp(s, "auto") == 0) return LocationMode::Auto;
   if (strcmp(s, "manual") == 0) return LocationMode::Manual;
   return fallback;
 }
 
-const char* gmtModeToString(GmtMode m) {
-  return m == GmtMode::Manual ? "manual" : "auto";
-}
+const char* gmtModeToString(GmtMode m) { return m == GmtMode::Manual ? "manual" : "auto"; }
 
 GmtMode gmtModeFromString(const char* s, GmtMode fallback) {
   if (!s) return fallback;
-  if (strcmp(s, "auto") == 0)   return GmtMode::Auto;
+  if (strcmp(s, "auto") == 0) return GmtMode::Auto;
   if (strcmp(s, "manual") == 0) return GmtMode::Manual;
   return fallback;
 }
@@ -123,20 +129,28 @@ GmtMode gmtModeFromString(const char* s, GmtMode fallback) {
 
 const char* dateFormatToString(DateFormat f) {
   switch (f) {
-    case DateFormat::DayMonthSlash: return "dd/mm";
-    case DateFormat::MonthDaySlash: return "mm/dd";
-    case DateFormat::DayMonthDash:  return "dd-mm";
-    case DateFormat::MonthDayDash:  return "mm-dd";
-    case DateFormat::DayMonthDot:   return "dd.mm";
-    case DateFormat::MonthDayDot:   return "mm.dd";
+    case DateFormat::DayMonthSlash:
+      return "dd/mm";
+    case DateFormat::MonthDaySlash:
+      return "mm/dd";
+    case DateFormat::DayMonthDash:
+      return "dd-mm";
+    case DateFormat::MonthDayDash:
+      return "mm-dd";
+    case DateFormat::DayMonthDot:
+      return "dd.mm";
+    case DateFormat::MonthDayDot:
+      return "mm.dd";
   }
   return "dd/mm";
 }
 
 const char* designModeToString(DesignMode d) {
   switch (d) {
-    case DesignMode::Minimal: return "minimal";
-    case DesignMode::Daily:   return "daily";
+    case DesignMode::Minimal:
+      return "minimal";
+    case DesignMode::Daily:
+      return "daily";
   }
   return "minimal";
 }
@@ -146,11 +160,10 @@ size_t formatDate(int day, int month, DateFormat fmt, char* out, size_t outSize)
   // Day-first formats put day before separator; month-first invert.
   // Separator differs across the three families (slash / dash / dot).
   const char sep = (fmt == DateFormat::DayMonthSlash || fmt == DateFormat::MonthDaySlash) ? '/'
-                 : (fmt == DateFormat::DayMonthDash  || fmt == DateFormat::MonthDayDash)  ? '-'
+                   : (fmt == DateFormat::DayMonthDash || fmt == DateFormat::MonthDayDash) ? '-'
                                                                                           : '.';
-  const bool dayFirst = (fmt == DateFormat::DayMonthSlash ||
-                         fmt == DateFormat::DayMonthDash ||
-                         fmt == DateFormat::DayMonthDot);
+  const bool dayFirst =
+      (fmt == DateFormat::DayMonthSlash || fmt == DateFormat::DayMonthDash || fmt == DateFormat::DayMonthDot);
   const int a = dayFirst ? day : month;
   const int b = dayFirst ? month : day;
   int n = snprintf(out, outSize, "%02d%c%02d", a, sep, b);
@@ -224,44 +237,34 @@ bool TodoistConfig::load() {
 
   apiToken = doc["api_token"] | std::string("");
   sleepScreenEnabled = doc["sleep_screen_enabled"] | false;
-  activityOrientation = orientationFromString(
-      doc["activity_orientation"] | static_cast<const char*>(nullptr),
-      GfxRenderer::Orientation::Portrait);
-  snapshotOrientation = orientationFromString(
-      doc["snapshot_orientation"] | static_cast<const char*>(nullptr),
-      GfxRenderer::Orientation::Portrait);
-  dateFilter = dateFilterFromString(
-      doc["date_filter"] | static_cast<const char*>(nullptr),
-      DateFilter::Today);
-  overdueFilter = overdueFilterFromString(
-      doc["overdue_filter"] | static_cast<const char*>(nullptr),
-      OverdueFilter::Last7Days);
+  activityOrientation = orientationFromString(doc["activity_orientation"] | static_cast<const char*>(nullptr),
+                                              GfxRenderer::Orientation::Portrait);
+  snapshotOrientation = orientationFromString(doc["snapshot_orientation"] | static_cast<const char*>(nullptr),
+                                              GfxRenderer::Orientation::Portrait);
+  dateFilter = dateFilterFromString(doc["date_filter"] | static_cast<const char*>(nullptr), DateFilter::Today);
+  overdueFilter =
+      overdueFilterFromString(doc["overdue_filter"] | static_cast<const char*>(nullptr), OverdueFilter::Last7Days);
 
   // Clamp on load: a corrupt or hand-edited file shouldn't be able to set
   // a wild offset that produces nonsense local time.
   int rawOffset = doc["gmt_offset"] | 0;
   if (rawOffset < -12) rawOffset = -12;
-  if (rawOffset > 14)  rawOffset = 14;
+  if (rawOffset > 14) rawOffset = 14;
   gmtOffset = static_cast<int8_t>(rawOffset);
 
-  dateFormat = dateFormatFromString(
-      doc["date_format"] | static_cast<const char*>(nullptr),
-      DateFormat::DayMonthSlash);
+  dateFormat = dateFormatFromString(doc["date_format"] | static_cast<const char*>(nullptr), DateFormat::DayMonthSlash);
 
-  designMode = designModeFromString(
-      doc["design"] | static_cast<const char*>(nullptr),
-      DesignMode::Minimal);
+  designMode = designModeFromString(doc["design"] | static_cast<const char*>(nullptr), DesignMode::Minimal);
 
   // Lat/lon default to 0 (sentinel "not configured") — hasLocation() keys
   // off the name being empty, not the coordinates, because (0,0) is a
   // legitimate point off the African coast and we shouldn't silently
   // re-geolocate a user who happens to be near it.
-  latitude  = doc["latitude"]  | 0.0;
+  latitude = doc["latitude"] | 0.0;
   longitude = doc["longitude"] | 0.0;
   locationName = doc["location_name"] | std::string("");
-  temperatureUnit = temperatureUnitFromString(
-      doc["temperature_unit"] | static_cast<const char*>(nullptr),
-      weather::TemperatureUnit::Celsius);
+  temperatureUnit = temperatureUnitFromString(doc["temperature_unit"] | static_cast<const char*>(nullptr),
+                                              weather::TemperatureUnit::Celsius);
 
   cachedWeatherDate = doc["weather_date"] | std::string("");
   cachedWeatherWmo = static_cast<uint8_t>(doc["weather_wmo"] | 0);
@@ -272,23 +275,19 @@ bool TodoistConfig::load() {
   // ArduinoJson's `|` fallback returns nullptr, the from-string helpers
   // fall through to the default (Auto), so existing users land on Auto on
   // first load after upgrade. Matches the spec ("default of both is auto").
-  locationMode = locationModeFromString(
-      doc["location_mode"] | static_cast<const char*>(nullptr),
-      LocationMode::Auto);
-  gmtMode = gmtModeFromString(
-      doc["gmt_mode"] | static_cast<const char*>(nullptr),
-      GmtMode::Auto);
+  locationMode = locationModeFromString(doc["location_mode"] | static_cast<const char*>(nullptr), LocationMode::Auto);
+  gmtMode = gmtModeFromString(doc["gmt_mode"] | static_cast<const char*>(nullptr), GmtMode::Auto);
 
   // Auto cache. Each field defaults to a neutral zero/empty value so a
   // partial pre-feature file (some keys missing) still loads cleanly.
-  autoLatitude  = doc["auto_latitude"]  | 0.0;
+  autoLatitude = doc["auto_latitude"] | 0.0;
   autoLongitude = doc["auto_longitude"] | 0.0;
   autoLocationName = doc["auto_location_name"] | std::string("");
   // Bounded clamp on offset: anything outside ±14 h is a corrupt file.
   // We keep it as int (seconds) on disk to preserve half-hour zones.
   int rawAutoOffset = doc["auto_gmt_offset_seconds"] | 0;
   if (rawAutoOffset < -14 * 3600) rawAutoOffset = -14 * 3600;
-  if (rawAutoOffset >  14 * 3600) rawAutoOffset =  14 * 3600;
+  if (rawAutoOffset > 14 * 3600) rawAutoOffset = 14 * 3600;
   autoGmtOffsetSeconds = rawAutoOffset;
   // ArduinoJson v6/v7 returns the right integer width; on this ESP build
   // time_t is 32-bit signed, so a 64-bit epoch would clip in 2038. Fine
@@ -296,14 +295,11 @@ bool TodoistConfig::load() {
   autoFetchedAt = static_cast<time_t>(doc["auto_fetched_at"] | 0);
 
   loaded = true;
-  LOG_DBG("TDST", "Config loaded (token=%s, sleep=%d)",
-          apiToken.empty() ? "no" : "yes", sleepScreenEnabled);
+  LOG_DBG("TDST", "Config loaded (token=%s, sleep=%d)", apiToken.empty() ? "no" : "yes", sleepScreenEnabled);
   return true;
 }
 
-bool TodoistConfig::hasValidToken() const {
-  return apiToken.size() >= 20;
-}
+bool TodoistConfig::hasValidToken() const { return apiToken.size() >= 20; }
 
 bool TodoistConfig::setSleepScreenEnabled(bool enabled) {
   if (enabled == sleepScreenEnabled) return true;
@@ -337,7 +333,7 @@ bool TodoistConfig::setOverdueFilter(OverdueFilter f) {
 
 bool TodoistConfig::setGmtOffset(int8_t hours) {
   if (hours < -12) hours = -12;
-  if (hours > 14)  hours = 14;
+  if (hours > 14) hours = 14;
   if (hours == gmtOffset) return true;
   gmtOffset = hours;
   return persist();
@@ -379,8 +375,7 @@ bool TodoistConfig::setLocation(double lat, double lon, const char* cityUtf8) {
 }
 
 bool TodoistConfig::clearLocation() {
-  if (!hasLocation() && latitude == 0.0 && longitude == 0.0 &&
-      cachedWeatherDate.empty()) {
+  if (!hasLocation() && latitude == 0.0 && longitude == 0.0 && cachedWeatherDate.empty()) {
     return true;
   }
   latitude = 0.0;
@@ -409,16 +404,14 @@ bool TodoistConfig::setGmtMode(GmtMode m) {
   return persist();
 }
 
-bool TodoistConfig::setAutoLocation(double lat, double lon,
-                                    const char* cityUtf8, int offsetSeconds,
-                                    time_t fetchedAt) {
+bool TodoistConfig::setAutoLocation(double lat, double lon, const char* cityUtf8, int offsetSeconds, time_t fetchedAt) {
   // Always rewrite (touches fetchedAt) even if values are unchanged — the
   // TTL check downstream keys off fetchedAt advancing on each successful
   // detection. Clamp the offset defensively to ±14 h to match the file
   // schema and prevent a hand-edited or rogue response from poisoning
   // applyTimezone with nonsense.
   if (offsetSeconds < -14 * 3600) offsetSeconds = -14 * 3600;
-  if (offsetSeconds >  14 * 3600) offsetSeconds =  14 * 3600;
+  if (offsetSeconds > 14 * 3600) offsetSeconds = 14 * 3600;
   autoLatitude = lat;
   autoLongitude = lon;
   autoLocationName = cityUtf8 ? std::string(cityUtf8) : std::string();
@@ -431,9 +424,8 @@ bool TodoistConfig::setAutoLocation(double lat, double lon,
 }
 
 bool TodoistConfig::clearAutoCache() {
-  if (!hasAutoLocation() && autoLatitude == 0.0 && autoLongitude == 0.0 &&
-      autoGmtOffsetSeconds == 0 && autoFetchedAt == 0 &&
-      cachedWeatherDate.empty()) {
+  if (!hasAutoLocation() && autoLatitude == 0.0 && autoLongitude == 0.0 && autoGmtOffsetSeconds == 0 &&
+      autoFetchedAt == 0 && cachedWeatherDate.empty()) {
     return true;
   }
   autoLatitude = 0.0;
@@ -472,12 +464,9 @@ int TodoistConfig::getEffectiveGmtOffsetSeconds() const {
   return static_cast<int>(gmtOffset) * 3600;
 }
 
-bool TodoistConfig::hasEffectiveLocation() const {
-  return !getEffectiveLocationName().empty();
-}
+bool TodoistConfig::hasEffectiveLocation() const { return !getEffectiveLocationName().empty(); }
 
-bool TodoistConfig::setCachedWeather(const char* todayYmd, uint8_t wmo,
-                                     int hi, int lo) {
+bool TodoistConfig::setCachedWeather(const char* todayYmd, uint8_t wmo, int hi, int lo) {
   if (!todayYmd || strlen(todayYmd) != 10) return false;
   cachedWeatherDate = todayYmd;
   cachedWeatherWmo = wmo;
@@ -542,8 +531,7 @@ bool TodoistConfig::persist() {
   }
 
   if (written != out.size()) {
-    LOG_ERR("TDST", "Short write: %u/%u", static_cast<unsigned>(written),
-            static_cast<unsigned>(out.size()));
+    LOG_ERR("TDST", "Short write: %u/%u", static_cast<unsigned>(written), static_cast<unsigned>(out.size()));
     Storage.remove(kConfigTmpPath);
     return false;
   }

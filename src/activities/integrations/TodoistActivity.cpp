@@ -1,5 +1,15 @@
 #include "TodoistActivity.h"
 
+#include <HalStorage.h>
+#include <WiFi.h>
+#include <esp_sntp.h>
+#include <sys/time.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+
 #include "Logging.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -7,17 +17,6 @@
 #include "integrations/todoist/TodoistConfig.h"
 #include "integrations/weather/WeatherClient.h"
 #include "util/ScreenshotUtil.h"
-
-#include <HalStorage.h>
-#include <WiFi.h>
-#include <esp_sntp.h>
-
-#include <sys/time.h>
-
-#include <algorithm>
-#include <ctime>
-#include <cstdio>
-#include <cstring>
 
 namespace {
 
@@ -27,10 +26,14 @@ constexpr const char* kSnapshotMetaTmpPath = "/.crosspoint/todoist_sleep.meta.tm
 
 const char* orientationToString(GfxRenderer::Orientation o) {
   switch (o) {
-    case GfxRenderer::Orientation::Portrait: return "portrait";
-    case GfxRenderer::Orientation::PortraitInverted: return "portrait_inverted";
-    case GfxRenderer::Orientation::LandscapeClockwise: return "landscape_cw";
-    case GfxRenderer::Orientation::LandscapeCounterClockwise: return "landscape_ccw";
+    case GfxRenderer::Orientation::Portrait:
+      return "portrait";
+    case GfxRenderer::Orientation::PortraitInverted:
+      return "portrait_inverted";
+    case GfxRenderer::Orientation::LandscapeClockwise:
+      return "landscape_cw";
+    case GfxRenderer::Orientation::LandscapeCounterClockwise:
+      return "landscape_ccw";
   }
   return "portrait";
 }
@@ -175,18 +178,17 @@ void TodoistActivity::startFetch() {
   }
 
   LOG_DBG("TDST", "Launching WifiSelectionActivity");
-  startActivityForResult(
-      std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-      [this](const ActivityResult& result) {
-        if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
-          _state = State::ShowingError;
-          _errorStrId = StrId::STR_TODOIST_OFFLINE;
-          requestUpdate();
-          return;
-        }
-        renderer.setOrientation(TODOIST_CONFIG.getActivityOrientation());
-        proceedWithFetch();
-      });
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
+                             _state = State::ShowingError;
+                             _errorStrId = StrId::STR_TODOIST_OFFLINE;
+                             requestUpdate();
+                             return;
+                           }
+                           renderer.setOrientation(TODOIST_CONFIG.getActivityOrientation());
+                           proceedWithFetch();
+                         });
 }
 
 void TodoistActivity::proceedWithFetch() {
@@ -197,10 +199,8 @@ void TodoistActivity::proceedWithFetch() {
   syncTimeWithNTP();
 
   using todoist::FetchResult;
-  FetchResult r = todoist::TodoistClient::fetch(TODOIST_CONFIG.getApiToken(),
-                                                TODOIST_CONFIG.getDateFilter(),
-                                                TODOIST_CONFIG.getOverdueFilter(),
-                                                _tasks);
+  FetchResult r = todoist::TodoistClient::fetch(TODOIST_CONFIG.getApiToken(), TODOIST_CONFIG.getDateFilter(),
+                                                TODOIST_CONFIG.getOverdueFilter(), _tasks);
 
   if (r == FetchResult::Ok) {
     time_t now = time(nullptr);
@@ -219,16 +219,15 @@ void TodoistActivity::proceedWithFetch() {
     // so plain strcmp gives chronological order; empty dueTime sorts after
     // any "HH:MM" because '\0' < any printable char — flip the empty-time
     // case explicitly so untimed entries land at the end of their date group.
-    std::sort(_tasks.begin(), _tasks.end(),
-              [](const todoist::TodoistTask& a, const todoist::TodoistTask& b) {
-                int dateCmp = strcmp(a.dueDate, b.dueDate);
-                if (dateCmp != 0) return dateCmp < 0;
-                bool aTimed = a.dueTime[0] != '\0';
-                bool bTimed = b.dueTime[0] != '\0';
-                if (aTimed != bTimed) return aTimed;  // timed first
-                if (aTimed) return strcmp(a.dueTime, b.dueTime) < 0;
-                return false;  // both untimed: stable order
-              });
+    std::sort(_tasks.begin(), _tasks.end(), [](const todoist::TodoistTask& a, const todoist::TodoistTask& b) {
+      int dateCmp = strcmp(a.dueDate, b.dueDate);
+      if (dateCmp != 0) return dateCmp < 0;
+      bool aTimed = a.dueTime[0] != '\0';
+      bool bTimed = b.dueTime[0] != '\0';
+      if (aTimed != bTimed) return aTimed;  // timed first
+      if (aTimed) return strcmp(a.dueTime, b.dueTime) < 0;
+      return false;  // both untimed: stable order
+    });
 
     _state = State::ShowingTasks;
     _scrollOffset = 0;
@@ -269,8 +268,7 @@ void TodoistActivity::refreshWeatherIfNeeded() {
   // a known location. Weather hi/lo and the WMO code don't move
   // meaningfully within a day; skipping the two HTTPS round-trips also
   // dodges the EAI_FAIL pattern we hit when chaining TLS connections.
-  if (_today[0] != '\0' && TODOIST_CONFIG.hasLocation() &&
-      TODOIST_CONFIG.getCachedWeatherDate() == _today) {
+  if (_today[0] != '\0' && TODOIST_CONFIG.hasLocation() && TODOIST_CONFIG.getCachedWeatherDate() == _today) {
     weather::Forecast fc;
     fc.valid = true;
     fc.wmoCode = TODOIST_CONFIG.getCachedWeatherWmo();
@@ -279,8 +277,7 @@ void TodoistActivity::refreshWeatherIfNeeded() {
     fc.unit = TODOIST_CONFIG.getTemperatureUnit();
     fillLocationName(fc);
     _forecast = fc;
-    LOG_DBG("TDST", "Weather cache hit for %s (wmo=%u hi=%d lo=%d)",
-            _today, fc.wmoCode, fc.hi, fc.lo);
+    LOG_DBG("TDST", "Weather cache hit for %s (wmo=%u hi=%d lo=%d)", _today, fc.wmoCode, fc.hi, fc.lo);
     return;
   }
 
@@ -302,16 +299,14 @@ void TodoistActivity::refreshWeatherIfNeeded() {
   // the resolver consistently. WeatherClient then has its own retry/backoff
   // for any residual flakiness.
   vTaskDelay(1500 / portTICK_PERIOD_MS);
-  LOG_DBG("TDST", "Weather entry: heap free=%u, largest=%u",
-          static_cast<unsigned>(ESP.getFreeHeap()),
+  LOG_DBG("TDST", "Weather entry: heap free=%u, largest=%u", static_cast<unsigned>(ESP.getFreeHeap()),
           static_cast<unsigned>(ESP.getMaxAllocHeap()));
 
   double lat = TODOIST_CONFIG.getLatitude();
   double lon = TODOIST_CONFIG.getLongitude();
 
   weather::Forecast fc;
-  auto fcRes = weather::WeatherClient::fetchForecast(
-      lat, lon, TODOIST_CONFIG.getTemperatureUnit(), fc);
+  auto fcRes = weather::WeatherClient::fetchForecast(lat, lon, TODOIST_CONFIG.getTemperatureUnit(), fc);
   if (fcRes != weather::FetchResult::Ok) {
     LOG_ERR("TDST", "Forecast fetch failed (%d)", static_cast<int>(fcRes));
     return;
@@ -330,22 +325,23 @@ void TodoistActivity::refreshWeatherIfNeeded() {
 StrId TodoistActivity::fetchResultToStrId(todoist::FetchResult r) const {
   using todoist::FetchResult;
   switch (r) {
-    case FetchResult::InvalidToken: return StrId::STR_TODOIST_INVALID_TOKEN;
-    case FetchResult::RateLimited:  return StrId::STR_TODOIST_RATE_LIMITED;
+    case FetchResult::InvalidToken:
+      return StrId::STR_TODOIST_INVALID_TOKEN;
+    case FetchResult::RateLimited:
+      return StrId::STR_TODOIST_RATE_LIMITED;
     case FetchResult::Ok:
     case FetchResult::ServerError:
     case FetchResult::NetworkError:
     case FetchResult::ParseError:
-    default:                        return StrId::STR_TODOIST_FETCH_FAILED;
+    default:
+      return StrId::STR_TODOIST_FETCH_FAILED;
   }
 }
 
 bool TodoistActivity::writeSnapshotMeta(GfxRenderer::Orientation o) {
   char buf[160];
-  int len = snprintf(buf, sizeof(buf),
-                     "{\"orientation\":\"%s\",\"captured_hour\":%u,\"captured_min\":%u}",
-                     orientationToString(o), static_cast<unsigned>(_capturedHour),
-                     static_cast<unsigned>(_capturedMin));
+  int len = snprintf(buf, sizeof(buf), "{\"orientation\":\"%s\",\"captured_hour\":%u,\"captured_min\":%u}",
+                     orientationToString(o), static_cast<unsigned>(_capturedHour), static_cast<unsigned>(_capturedMin));
   if (len <= 0 || len >= static_cast<int>(sizeof(buf))) {
     LOG_ERR("TDST", "Meta format failed");
     return false;
@@ -383,10 +379,9 @@ void TodoistActivity::captureSnapshotIfNeeded() {
 
   if (activityOrient == snapshotOrient) {
     renderTaskList(/*drawHints=*/false);
-    if (!ScreenshotUtil::saveFramebufferAsBmpOriented(
-            kSnapshotBmpPath, renderer.getFrameBuffer(),
-            renderer.getDisplayWidth(), renderer.getDisplayHeight(),
-            snapshotOrient)) {
+    if (!ScreenshotUtil::saveFramebufferAsBmpOriented(kSnapshotBmpPath, renderer.getFrameBuffer(),
+                                                      renderer.getDisplayWidth(), renderer.getDisplayHeight(),
+                                                      snapshotOrient)) {
       LOG_ERR("TDST", "Snapshot save failed");
     } else {
       LOG_DBG("TDST", "Snapshot saved to %s", kSnapshotBmpPath);
@@ -398,10 +393,9 @@ void TodoistActivity::captureSnapshotIfNeeded() {
   // Different orientations: render in snapshot orientation, save, then revert.
   renderer.setOrientation(snapshotOrient);
   renderTaskList(/*drawHints=*/false);
-  if (!ScreenshotUtil::saveFramebufferAsBmpOriented(
-          kSnapshotBmpPath, renderer.getFrameBuffer(),
-          renderer.getDisplayWidth(), renderer.getDisplayHeight(),
-          snapshotOrient)) {
+  if (!ScreenshotUtil::saveFramebufferAsBmpOriented(kSnapshotBmpPath, renderer.getFrameBuffer(),
+                                                    renderer.getDisplayWidth(), renderer.getDisplayHeight(),
+                                                    snapshotOrient)) {
     LOG_ERR("TDST", "Snapshot save failed");
   } else {
     LOG_DBG("TDST", "Snapshot saved to %s (rotated)", kSnapshotBmpPath);
@@ -412,9 +406,15 @@ void TodoistActivity::captureSnapshotIfNeeded() {
 
 void TodoistActivity::render(RenderLock&&) {
   switch (_state) {
-    case State::Loading:        renderLoading(); break;
-    case State::ShowingError:   renderError();   break;
-    case State::ShowingTasks:   renderTaskList(); break;
+    case State::Loading:
+      renderLoading();
+      break;
+    case State::ShowingError:
+      renderError();
+      break;
+    case State::ShowingTasks:
+      renderTaskList();
+      break;
   }
   renderer.displayBuffer();
 }
@@ -446,11 +446,9 @@ namespace {
 // English month names for the Daily header. Kept local so the i18n layer
 // doesn't have to grow 12 new strings just for this view — when other
 // integrations need localised month names we'll lift this into I18n.
-constexpr const char* kMonthNames[12] = {
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"};
-constexpr const char* kDayNames[7] = {
-    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+constexpr const char* kMonthNames[12] = {"January", "February", "March",     "April",   "May",      "June",
+                                         "July",    "August",   "September", "October", "November", "December"};
+constexpr const char* kDayNames[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 }  // namespace
 
@@ -470,27 +468,25 @@ void TodoistActivity::renderMinimal(bool drawHints) {
   // same reserve so its battery icon and underline don't run under the
   // hint button rectangles in landscape.
   const auto orientation = renderer.getOrientation();
-  const bool isLandscape = (orientation == GfxRenderer::LandscapeClockwise ||
-                            orientation == GfxRenderer::LandscapeCounterClockwise);
+  const bool isLandscape =
+      (orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise);
   const bool hintOnLeft = (orientation == GfxRenderer::LandscapeClockwise);
   const int hintReserve = drawHints ? metrics.buttonHintsHeight + metrics.verticalSpacing * 2 : 0;
   const int hintLeftReserve = (isLandscape && hintOnLeft) ? hintReserve : 0;
   const int hintRightReserve = (isLandscape && !hintOnLeft) ? hintReserve : 0;
 
   char dateStr[8];
-  todoist::formatDate(_capturedDay, _capturedMonth, TODOIST_CONFIG.getDateFormat(),
-                      dateStr, sizeof(dateStr));
+  todoist::formatDate(_capturedDay, _capturedMonth, TODOIST_CONFIG.getDateFormat(), dateStr, sizeof(dateStr));
   char timestamp[32];
-  snprintf(timestamp, sizeof(timestamp), I18N.get(StrId::STR_TODOIST_TODAY_HEADER),
-           dateStr, _capturedHour, _capturedMin);
+  snprintf(timestamp, sizeof(timestamp), I18N.get(StrId::STR_TODOIST_TODAY_HEADER), dateStr, _capturedHour,
+           _capturedMin);
 
   // "Todoist" as bold title on the left, timestamp as small right-aligned
   // subtitle. Subtitle uses the smaller SMALL_FONT_ID inside drawHeader, so
   // the update time reads as status info rather than a heavy header line.
   GUI.drawHeader(
       renderer,
-      Rect{hintLeftReserve, metrics.topPadding,
-           pageWidth - hintLeftReserve - hintRightReserve, metrics.headerHeight},
+      Rect{hintLeftReserve, metrics.topPadding, pageWidth - hintLeftReserve - hintRightReserve, metrics.headerHeight},
       tr(STR_TODOIST), timestamp);
 
   if (!drawHints) {
@@ -499,8 +495,8 @@ void TodoistActivity::renderMinimal(bool drawHints) {
     // when the snapshot was taken, not when the screen is being viewed.
     // 80px matches BaseTheme's reserved battery region.
     constexpr int kBatteryRegionWidth = 80;
-    renderer.fillRect(pageWidth - hintRightReserve - kBatteryRegionWidth, metrics.topPadding + 5,
-                      kBatteryRegionWidth, metrics.batteryHeight + 10, false);
+    renderer.fillRect(pageWidth - hintRightReserve - kBatteryRegionWidth, metrics.topPadding + 5, kBatteryRegionWidth,
+                      metrics.batteryHeight + 10, false);
   }
 
   if (drawHints) {
@@ -530,8 +526,8 @@ void TodoistActivity::renderDaily(bool drawHints) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   const auto orientation = renderer.getOrientation();
-  const bool isLandscape = (orientation == GfxRenderer::LandscapeClockwise ||
-                            orientation == GfxRenderer::LandscapeCounterClockwise);
+  const bool isLandscape =
+      (orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise);
   const bool hintOnLeft = (orientation == GfxRenderer::LandscapeClockwise);
   const int hintReserve = drawHints ? metrics.buttonHintsHeight + metrics.verticalSpacing * 2 : 0;
   const int hintLeftReserve = (isLandscape && hintOnLeft) ? hintReserve : 0;
@@ -563,8 +559,7 @@ void TodoistActivity::renderDaily(bool drawHints) {
   {
     const int monthIdx = (_capturedMonth >= 1 && _capturedMonth <= 12) ? _capturedMonth - 1 : 0;
     char dateLine[32];
-    snprintf(dateLine, sizeof(dateLine), "%s %u, %u",
-             kMonthNames[monthIdx], static_cast<unsigned>(_capturedDay),
+    snprintf(dateLine, sizeof(dateLine), "%s %u, %u", kMonthNames[monthIdx], static_cast<unsigned>(_capturedDay),
              static_cast<unsigned>(_capturedYear));
     const int w = renderer.getTextWidth(UI_12_FONT_ID, dateLine);
     renderer.drawText(UI_12_FONT_ID, leftEdge + (columnWidth - w) / 2, y, dateLine, true);
@@ -576,8 +571,7 @@ void TodoistActivity::renderDaily(bool drawHints) {
     const int dowIdx = (_capturedDow <= 6) ? _capturedDow : 0;
     const char* dow = kDayNames[dowIdx];
     const int w = renderer.getTextWidth(NOTOSERIF_18_FONT_ID, dow, EpdFontFamily::BOLD);
-    renderer.drawText(NOTOSERIF_18_FONT_ID, leftEdge + (columnWidth - w) / 2, y, dow,
-                      true, EpdFontFamily::BOLD);
+    renderer.drawText(NOTOSERIF_18_FONT_ID, leftEdge + (columnWidth - w) / 2, y, dow, true, EpdFontFamily::BOLD);
     y += renderer.getLineHeight(NOTOSERIF_18_FONT_ID) + 8;
   }
 
@@ -604,8 +598,7 @@ void TodoistActivity::renderDaily(bool drawHints) {
       // "22° / 14°" — same glyph style as the stub. Unit suffix is
       // intentionally NOT appended per-value; the configured unit makes
       // it unambiguous, and "22°C / 14°C" looks cluttered.
-      snprintf(tempsBuf, sizeof(tempsBuf), "%d\xC2\xB0 / %d\xC2\xB0",
-               _forecast.hi, _forecast.lo);
+      snprintf(tempsBuf, sizeof(tempsBuf), "%d\xC2\xB0 / %d\xC2\xB0", _forecast.hi, _forecast.lo);
     } else {
       // U+2014 em dash for both sides — same width on both ends so the
       // row stays visually balanced even when offline.
@@ -617,8 +610,7 @@ void TodoistActivity::renderDaily(bool drawHints) {
     // Left column: icon + condition word. We bracket conditional bytes
     // (em dash) into the same buffer as the WMO label so the layout
     // code is single-path regardless of forecast validity.
-    const char* condition =
-        _forecast.valid ? weather::wmoCodeToLabel(_forecast.wmoCode) : "\xE2\x80\x94";
+    const char* condition = _forecast.valid ? weather::wmoCodeToLabel(_forecast.wmoCode) : "\xE2\x80\x94";
     const uint8_t* icon = _forecast.valid ? weather::wmoCodeToIcon(_forecast.wmoCode) : nullptr;
 
     const int leftX = leftEdge + kWeatherPadding;
@@ -698,11 +690,10 @@ void TodoistActivity::renderDaily(bool drawHints) {
   // above it. Mirrors the top weather sandwich so the chrome reads
   // symmetrically.
   char dateStr[8];
-  todoist::formatDate(_capturedDay, _capturedMonth, TODOIST_CONFIG.getDateFormat(),
-                      dateStr, sizeof(dateStr));
+  todoist::formatDate(_capturedDay, _capturedMonth, TODOIST_CONFIG.getDateFormat(), dateStr, sizeof(dateStr));
   char updatedLine[32];
-  snprintf(updatedLine, sizeof(updatedLine), I18N.get(StrId::STR_TODOIST_TODAY_HEADER),
-           dateStr, _capturedHour, _capturedMin);
+  snprintf(updatedLine, sizeof(updatedLine), I18N.get(StrId::STR_TODOIST_TODAY_HEADER), dateStr, _capturedHour,
+           _capturedMin);
 
   const int updatedLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   constexpr int kBottomPadding = 4;
@@ -731,32 +722,31 @@ void TodoistActivity::renderDaily(bool drawHints) {
   drawTaskRows(contentTop, contentHeight, tileX, tileWidth, drawHints, pageWidth);
 }
 
-void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX, int tileWidth,
-                                   bool drawHints, int pageWidth) {
+void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX, int tileWidth, bool drawHints,
+                                   int pageWidth) {
   // Compact bullet list. Each task gets only the height it needs (1 or 2
   // wrapped lines), with a small gap between tasks. No separator lines —
   // the bullet glyph is the row delimiter.
   // No outlines — the only visible chrome is a light-grey rounded fill
   // behind the cursor row, matching the Lyra home menu's selection style.
   // Variable row height is kept so 2-line task titles don't get truncated.
-  constexpr const char* kBulletNormal = "\xE2\x80\xA2";   // U+2022 BULLET — today / undated
-  constexpr const char* kBulletOverdue = "!";              // overdue marker
-  constexpr const char* kBulletFuture = "\xE2\x80\xBA";   // U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
-  constexpr int kTilePaddingX = 10;  // inner horizontal padding inside the cursor band
-  constexpr int kTilePaddingY = 6;   // inner vertical padding above/below text
-  constexpr int kBulletGap = 8;      // px between bullet and title
-  constexpr int kRowGap = 2;         // px between consecutive task rows
-  constexpr int kCursorRadius = 6;   // matches Lyra menu cornerRadius
-  constexpr int kDateGap = 8;        // px between title and date suffix
+  constexpr const char* kBulletNormal = "\xE2\x80\xA2";  // U+2022 BULLET — today / undated
+  constexpr const char* kBulletOverdue = "!";            // overdue marker
+  constexpr const char* kBulletFuture = "\xE2\x80\xBA";  // U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+  constexpr int kTilePaddingX = 10;                      // inner horizontal padding inside the cursor band
+  constexpr int kTilePaddingY = 6;                       // inner vertical padding above/below text
+  constexpr int kBulletGap = 8;                          // px between bullet and title
+  constexpr int kRowGap = 2;                             // px between consecutive task rows
+  constexpr int kCursorRadius = 6;                       // matches Lyra menu cornerRadius
+  constexpr int kDateGap = 8;                            // px between title and date suffix
   constexpr int kMaxLines = 2;
 
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   // Reserve space for the widest possible glyph so the text column lines up
   // regardless of which marker each row ends up using.
-  const int bulletColWidth = std::max({
-      renderer.getTextWidth(UI_10_FONT_ID, kBulletNormal),
-      renderer.getTextWidth(UI_10_FONT_ID, kBulletOverdue),
-      renderer.getTextWidth(UI_10_FONT_ID, kBulletFuture)});
+  const int bulletColWidth = std::max({renderer.getTextWidth(UI_10_FONT_ID, kBulletNormal),
+                                       renderer.getTextWidth(UI_10_FONT_ID, kBulletOverdue),
+                                       renderer.getTextWidth(UI_10_FONT_ID, kBulletFuture)});
   // Width reserved on the right edge of the row for the dd/mm date suffix.
   // Computed from a representative pair so every dated row renders at the
   // same x — avoids one row's "31/12" pushing wider than the previous "5/3".
@@ -777,8 +767,7 @@ void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX,
 
     // A task is "future" when it has a dueDate strictly later than today.
     // Empty dueDate counts as today (Todoist filter "today" returns these).
-    const bool isFuture =
-        _today[0] != '\0' && t.dueDate[0] != '\0' && strcmp(t.dueDate, _today) > 0;
+    const bool isFuture = _today[0] != '\0' && t.dueDate[0] != '\0' && strcmp(t.dueDate, _today) > 0;
 
     // Show a dd/mm date suffix on every row that has a dueDate — including
     // today's. The marker glyph already encodes overdue/future/today, but the
@@ -787,10 +776,7 @@ void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX,
     const bool showDate = t.dueDate[0] != '\0';
 
     char fullTitle[128];
-    snprintf(fullTitle, sizeof(fullTitle), "%s%s%s",
-             t.dueTime[0] ? t.dueTime : "",
-             t.dueTime[0] ? "  " : "",
-             t.title);
+    snprintf(fullTitle, sizeof(fullTitle), "%s%s%s", t.dueTime[0] ? t.dueTime : "", t.dueTime[0] ? "  " : "", t.title);
 
     const int rowTextWidth = showDate ? textWidth - dateColWidth - kDateGap : textWidth;
     auto lines = renderer.wrappedText(UI_10_FONT_ID, fullTitle, rowTextWidth, kMaxLines);
@@ -810,9 +796,7 @@ void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX,
     // over future (an overdue task can't be future, but the order makes the
     // intent explicit). The future glyph "›" hints at "upcoming" without
     // demanding attention the way "!" does for overdue.
-    const char* marker = t.overdue   ? kBulletOverdue
-                         : isFuture  ? kBulletFuture
-                                     : kBulletNormal;
+    const char* marker = t.overdue ? kBulletOverdue : isFuture ? kBulletFuture : kBulletNormal;
     // drawText anchors y to the TOP of the text (it adds the ascender
     // internally), so the first line's y is just tile-top + tile padding.
     const int markerX = tileX + kTilePaddingX;
@@ -820,9 +804,7 @@ void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX,
     renderer.drawText(UI_10_FONT_ID, markerX, firstLineY, marker, true);
 
     for (size_t li = 0; li < lines.size(); ++li) {
-      renderer.drawText(UI_10_FONT_ID, textX,
-                        firstLineY + static_cast<int>(li) * lineHeight,
-                        lines[li].c_str(), true);
+      renderer.drawText(UI_10_FONT_ID, textX, firstLineY + static_cast<int>(li) * lineHeight, lines[li].c_str(), true);
     }
 
     // Date suffix at the right edge of the row, baseline-aligned with the

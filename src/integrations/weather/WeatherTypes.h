@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 namespace weather {
 
@@ -12,10 +12,10 @@ enum class TemperatureUnit : uint8_t {
 
 enum class FetchResult {
   Ok,
-  NetworkError,   // timeout, TLS, transport, OOM in response buffer
-  RateLimited,    // 429 (ipapi.co caps free tier at ~1k/day per IP)
-  ServerError,    // 5xx
-  ParseError,     // missing/invalid JSON fields
+  NetworkError,  // timeout, TLS, transport, OOM in response buffer
+  RateLimited,   // 429 (ipapi.co caps free tier at ~1k/day per IP)
+  ServerError,   // 5xx
+  ParseError,    // missing/invalid JSON fields
 };
 
 // Single-day forecast snapshot used by the Daily Todoist view.

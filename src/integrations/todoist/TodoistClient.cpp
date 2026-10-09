@@ -14,8 +14,7 @@ namespace todoist {
 
 namespace {
 
-constexpr const char* kEndpointBase =
-    "https://api.todoist.com/api/v1/tasks/filter?query=";
+constexpr const char* kEndpointBase = "https://api.todoist.com/api/v1/tasks/filter?query=";
 constexpr int kHttpTimeoutMs = 15000;
 // Keep HTTP rx/tx buffers small. mbedTLS handshake on ESP32-C3 needs ~32 KB
 // of heap on top of these — every KB we free here is one mbedTLS can take.
@@ -64,9 +63,7 @@ esp_err_t httpEventHandler(esp_http_client_event_t* evt) {
       size_t freeBytes = heap_caps_get_free_size(MALLOC_CAP_8BIT);
       size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
       LOG_ERR("TDST", "OOM allocating %u-byte response buffer (free=%u, largest=%u)",
-              static_cast<unsigned>(buf->capacity),
-              static_cast<unsigned>(freeBytes),
-              static_cast<unsigned>(largest));
+              static_cast<unsigned>(buf->capacity), static_cast<unsigned>(freeBytes), static_cast<unsigned>(largest));
       return ESP_OK;
     }
   }
@@ -94,8 +91,7 @@ void extractDueTime(const char* due, char* out, size_t outCap) {
   // Want 5 chars after T: "HH:MM"
   if (strlen(tPos + 1) < 5) return;
   if (outCap < 6) return;
-  snprintf(out, outCap, "%c%c:%c%c",
-           tPos[1], tPos[2], tPos[4], tPos[5]);
+  snprintf(out, outCap, "%c%c:%c%c", tPos[1], tPos[2], tPos[4], tPos[5]);
 }
 
 // Returns true if the due date is strictly before today's date in the
@@ -183,9 +179,8 @@ std::string urlEncode(const std::string& s) {
   static const char hex[] = "0123456789ABCDEF";
   for (char c : s) {
     unsigned char uc = static_cast<unsigned char>(c);
-    if ((uc >= 'A' && uc <= 'Z') || (uc >= 'a' && uc <= 'z') ||
-        (uc >= '0' && uc <= '9') ||
-        uc == '-' || uc == '_' || uc == '.' || uc == '~') {
+    if ((uc >= 'A' && uc <= 'Z') || (uc >= 'a' && uc <= 'z') || (uc >= '0' && uc <= '9') || uc == '-' || uc == '_' ||
+        uc == '.' || uc == '~') {
       out.push_back(c);
     } else {
       out.push_back('%');
@@ -205,11 +200,13 @@ std::string urlEncode(const std::string& s) {
 std::string buildQuery(DateFilter dateF, OverdueFilter overdueF) {
   std::string date;
   switch (dateF) {
-    case DateFilter::None:  break;
-    case DateFilter::Today: date = "today"; break;
+    case DateFilter::None:
+      break;
+    case DateFilter::Today:
+      date = "today";
+      break;
     case DateFilter::ThisWeek:
-      date = "due after: yesterday & due before: " +
-             formatLocalDate(daysUntilNextMonday());
+      date = "due after: yesterday & due before: " + formatLocalDate(daysUntilNextMonday());
       break;
     case DateFilter::ThisMonth:
       date = "due after: yesterday & due before: " + firstOfNextMonth();
@@ -218,22 +215,25 @@ std::string buildQuery(DateFilter dateF, OverdueFilter overdueF) {
 
   std::string overdue;
   switch (overdueF) {
-    case OverdueFilter::None:                                                break;
-    case OverdueFilter::Last7Days: overdue = "overdue & due after: -7 days"; break;
-    case OverdueFilter::All:       overdue = "overdue";                      break;
+    case OverdueFilter::None:
+      break;
+    case OverdueFilter::Last7Days:
+      overdue = "overdue & due after: -7 days";
+      break;
+    case OverdueFilter::All:
+      overdue = "overdue";
+      break;
   }
 
   if (date.empty() && overdue.empty()) return "today";  // degenerate fallback
-  if (date.empty())    return overdue;
+  if (date.empty()) return overdue;
   if (overdue.empty()) return date;
   return "(" + date + ") | (" + overdue + ")";
 }
 
 }  // namespace
 
-FetchResult TodoistClient::fetch(const std::string& apiToken,
-                                 DateFilter dateFilter,
-                                 OverdueFilter overdueFilter,
+FetchResult TodoistClient::fetch(const std::string& apiToken, DateFilter dateFilter, OverdueFilter overdueFilter,
                                  std::vector<TodoistTask>& outTasks) {
   outTasks.clear();
   outTasks.reserve(kMaxTasks);
@@ -284,8 +284,7 @@ FetchResult TodoistClient::fetch(const std::string& apiToken,
   const int httpCode = esp_http_client_get_status_code(client);
   esp_http_client_cleanup(client);
 
-  LOG_DBG("TDST", "HTTP %d (err=%d, %u bytes%s)",
-          httpCode, err, static_cast<unsigned>(buf.size),
+  LOG_DBG("TDST", "HTTP %d (err=%d, %u bytes%s)", httpCode, err, static_cast<unsigned>(buf.size),
           buf.truncated ? " [truncated]" : "");
 
   if (err != ESP_OK) {
@@ -306,8 +305,7 @@ FetchResult TodoistClient::fetch(const std::string& apiToken,
   }
 
   if (buf.truncated) {
-    LOG_ERR("TDST", "Response truncated at cap (%u bytes)",
-            static_cast<unsigned>(buf.capacity));
+    LOG_ERR("TDST", "Response truncated at cap (%u bytes)", static_cast<unsigned>(buf.capacity));
     // Not fatal — try to parse what we have. Worst case ParseError below.
   }
 

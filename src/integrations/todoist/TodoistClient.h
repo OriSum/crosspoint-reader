@@ -1,20 +1,20 @@
 #pragma once
 
-#include "TodoistConfig.h"
-#include "TodoistTask.h"
-
 #include <string>
 #include <vector>
+
+#include "TodoistConfig.h"
+#include "TodoistTask.h"
 
 namespace todoist {
 
 enum class FetchResult {
   Ok,
-  InvalidToken,    // 401/403
-  RateLimited,     // 429
-  NetworkError,    // timeout, TLS handshake, transport
-  ServerError,     // 5xx
-  ParseError,      // bad/unexpected JSON
+  InvalidToken,  // 401/403
+  RateLimited,   // 429
+  NetworkError,  // timeout, TLS handshake, transport
+  ServerError,   // 5xx
+  ParseError,    // bad/unexpected JSON
 };
 
 class TodoistClient {
@@ -23,9 +23,7 @@ class TodoistClient {
   // clock is set (NTP) — calendar-bounded date filters compute their cutoff
   // from time(nullptr). Reserves out capacity to a sane upper bound and
   // truncates extras silently. Never blocks indefinitely (15s HTTP timeout).
-  static FetchResult fetch(const std::string& apiToken,
-                           DateFilter dateFilter,
-                           OverdueFilter overdueFilter,
+  static FetchResult fetch(const std::string& apiToken, DateFilter dateFilter, OverdueFilter overdueFilter,
                            std::vector<TodoistTask>& outTasks);
 };
 
