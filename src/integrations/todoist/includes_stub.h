@@ -1,0 +1,16 @@
+#include <Arduino.h>
+
+#include "CrossPointSettings.h"
+#include "CrossPointState.h"
+#include "KOReaderCredentialStore.h"
+#include "MappedInputManager.h"
+#include "OpdsServerStore.h"
+#include "RecentBooksStore.h"
+#include "activities/Activity.h"
+#include "activities/ActivityManager.h"
+#include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
+#include "integrations/todoist/TodoistConfig.h"
+#include "util/ButtonNavigator.h"
+#include "util/ScreenshotUtil.h"
