@@ -15,7 +15,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "integrations/todoist/TodoistConfig.h"
-#include "integrations/weather/WeatherClient.h"
 #include "util/ScreenshotUtil.h"
 
 namespace {
@@ -38,18 +37,11 @@ const char* orientationToString(GfxRenderer::Orientation o) {
   return "portrait";
 }
 
-// Apply the user's GMT offset to newlib's TZ state so localtime_r returns
-// wall-clock time matching their locale. Civil "GMT-3" means 3 hours
-// behind UTC; POSIX-TZ inverts the sign convention (positive = west of
-// UTC), so we negate before formatting. Snap to 0 on overflow rather
-// than crash — the config layer already clamps, but defence in depth is
-// cheap here.
+// Pin the clock to UTC for the fetch path. There is no user timezone
+// setting in the v1 config, so "today" resolves against UTC — the device's
+// own timezone setting continues to govern everything outside this activity.
 void applyTimezone() {
-  int8_t off = TODOIST_CONFIG.getGmtOffset();
-  if (off < -12 || off > 14) off = 0;
-  char tzBuf[16];
-  snprintf(tzBuf, sizeof(tzBuf), "GMT%+d", -static_cast<int>(off));
-  setenv("TZ", tzBuf, 1);
+  setenv("TZ", "UTC", 1);
   tzset();
 }
 
@@ -199,8 +191,7 @@ void TodoistActivity::proceedWithFetch() {
   syncTimeWithNTP();
 
   using todoist::FetchResult;
-  FetchResult r = todoist::TodoistClient::fetch(TODOIST_CONFIG.getApiToken(), TODOIST_CONFIG.getDateFilter(),
-                                                TODOIST_CONFIG.getOverdueFilter(), _tasks);
+  FetchResult r = todoist::TodoistClient::fetch(TODOIST_CONFIG.getApiToken(), _tasks);
 
   if (r == FetchResult::Ok) {
     time_t now = time(nullptr);
@@ -208,10 +199,6 @@ void TodoistActivity::proceedWithFetch() {
     localtime_r(&now, &tm_now);
     _capturedHour = static_cast<uint8_t>(tm_now.tm_hour);
     _capturedMin = static_cast<uint8_t>(tm_now.tm_min);
-    _capturedDay = static_cast<uint8_t>(tm_now.tm_mday);
-    _capturedMonth = static_cast<uint8_t>(tm_now.tm_mon + 1);
-    _capturedYear = static_cast<uint16_t>(tm_now.tm_year + 1900);
-    _capturedDow = static_cast<uint8_t>(tm_now.tm_wday);
     strftime(_today, sizeof(_today), "%Y-%m-%d", &tm_now);
 
     // Chronological sort: oldest overdue first, then today's timed tasks in
@@ -233,142 +220,12 @@ void TodoistActivity::proceedWithFetch() {
     _scrollOffset = 0;
     _selectedIndex = 0;
     _lastVisibleIndex = -1;
-    // Best-effort: fetch weather BEFORE the snapshot so the saved sleep
-    // image shows the same forecast the active view does. A failure here
-    // just leaves _forecast.valid=false; the renderer handles that.
-    refreshWeatherIfNeeded();
     captureSnapshotIfNeeded();
   } else {
     _state = State::ShowingError;
     _errorStrId = fetchResultToStrId(r);
   }
   requestUpdate(true);
-}
-
-void TodoistActivity::refreshWeatherIfNeeded() {
-  _forecast = weather::Forecast{};  // reset to invalid
-
-  // Weather is a Daily-only concern. Spending an HTTP round-trip on the
-  // Minimal design — which has no slot to render it — would just slow
-  // down the refresh.
-  if (TODOIST_CONFIG.getDesignMode() != todoist::DesignMode::Daily) return;
-
-  // Helper: copy the configured city name into a Forecast struct. Used by
-  // both the cache-hit and fresh-fetch paths so the renderer never has to
-  // know which path produced the forecast.
-  auto fillLocationName = [this](weather::Forecast& fc) {
-    const std::string& name = TODOIST_CONFIG.getLocationName();
-    size_t n = name.size();
-    if (n >= sizeof(fc.locationName)) n = sizeof(fc.locationName) - 1;
-    memcpy(fc.locationName, name.data(), n);
-    fc.locationName[n] = '\0';
-  };
-
-  // Cache hit: same calendar date in the user's timezone AND we still have
-  // a known location. Weather hi/lo and the WMO code don't move
-  // meaningfully within a day; skipping the two HTTPS round-trips also
-  // dodges the EAI_FAIL pattern we hit when chaining TLS connections.
-  if (_today[0] != '\0' && TODOIST_CONFIG.hasLocation() && TODOIST_CONFIG.getCachedWeatherDate() == _today) {
-    weather::Forecast fc;
-    fc.valid = true;
-    fc.wmoCode = TODOIST_CONFIG.getCachedWeatherWmo();
-    fc.hi = TODOIST_CONFIG.getCachedWeatherHi();
-    fc.lo = TODOIST_CONFIG.getCachedWeatherLo();
-    fc.unit = TODOIST_CONFIG.getTemperatureUnit();
-    fillLocationName(fc);
-    _forecast = fc;
-    LOG_DBG("TDST", "Weather cache hit for %s (wmo=%u hi=%d lo=%d)", _today, fc.wmoCode, fc.hi, fc.lo);
-    return;
-  }
-
-  // No location configured → nothing to fetch. The user must set a city
-  // via Settings → Todoist → Location. IP geolocation was abandoned: it's
-  // unreliable on Starlink, CGNAT, and VPN (Starlink in particular routes
-  // through a regional ground station, so every IP database pins the user
-  // at the wrong city). Manual entry is the only universally-correct fix.
-  if (!TODOIST_CONFIG.hasLocation()) {
-    LOG_DBG("TDST", "No location set — skipping weather fetch");
-    return;
-  }
-
-  // Cache miss → fall through to fetch path.
-  // Let lwIP settle after Todoist's TLS teardown. Without this, the next
-  // getaddrinfo() returns EAI_FAIL (202) for several seconds — empirically
-  // observed on the C3 when two HTTPS requests are issued back-to-back.
-  // 500 ms wasn't enough in practice (retries still failed); 1.5 s clears
-  // the resolver consistently. WeatherClient then has its own retry/backoff
-  // for any residual flakiness.
-  vTaskDelay(1500 / portTICK_PERIOD_MS);
-  LOG_DBG("TDST", "Weather entry: heap free=%u, largest=%u", static_cast<unsigned>(ESP.getFreeHeap()),
-          static_cast<unsigned>(ESP.getMaxAllocHeap()));
-
-  double lat = TODOIST_CONFIG.getLatitude();
-  double lon = TODOIST_CONFIG.getLongitude();
-
-  weather::Forecast fc;
-  auto fcRes = weather::WeatherClient::fetchForecast(lat, lon, TODOIST_CONFIG.getTemperatureUnit(), fc);
-  if (fcRes != weather::FetchResult::Ok) {
-    LOG_ERR("TDST", "Forecast fetch failed (%d)", static_cast<int>(fcRes));
-    return;
-  }
-  fillLocationName(fc);
-  _forecast = fc;
-
-  // Persist for the rest of the day. _today is "YYYY-MM-DD" in the user's
-  // timezone, captured at the top of proceedWithFetch(); reusing it keeps
-  // the cache key consistent with the calendar the user sees on screen.
-  if (_today[0] != '\0') {
-    TODOIST_CONFIG.setCachedWeather(_today, fc.wmoCode, fc.hi, fc.lo);
-  }
-}
-
-StrId TodoistActivity::fetchResultToStrId(todoist::FetchResult r) const {
-  using todoist::FetchResult;
-  switch (r) {
-    case FetchResult::InvalidToken:
-      return StrId::STR_TODOIST_INVALID_TOKEN;
-    case FetchResult::RateLimited:
-      return StrId::STR_TODOIST_RATE_LIMITED;
-    case FetchResult::Ok:
-    case FetchResult::ServerError:
-    case FetchResult::NetworkError:
-    case FetchResult::ParseError:
-    default:
-      return StrId::STR_TODOIST_FETCH_FAILED;
-  }
-}
-
-bool TodoistActivity::writeSnapshotMeta(GfxRenderer::Orientation o) {
-  char buf[160];
-  int len = snprintf(buf, sizeof(buf), "{\"orientation\":\"%s\",\"captured_hour\":%u,\"captured_min\":%u}",
-                     orientationToString(o), static_cast<unsigned>(_capturedHour), static_cast<unsigned>(_capturedMin));
-  if (len <= 0 || len >= static_cast<int>(sizeof(buf))) {
-    LOG_ERR("TDST", "Meta format failed");
-    return false;
-  }
-
-  if (Storage.exists(kSnapshotMetaTmpPath)) Storage.remove(kSnapshotMetaTmpPath);
-
-  HalFile file;
-  if (!Storage.openFileForWrite("TDST", kSnapshotMetaTmpPath, file)) {
-    LOG_ERR("TDST", "Cannot open meta tmp");
-    return false;
-  }
-  size_t n = file.write(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(len));
-  file.close();
-  if (n != static_cast<size_t>(len)) {
-    LOG_ERR("TDST", "Short meta write");
-    Storage.remove(kSnapshotMetaTmpPath);
-    return false;
-  }
-
-  if (Storage.exists(kSnapshotMetaPath)) Storage.remove(kSnapshotMetaPath);
-  if (!Storage.rename(kSnapshotMetaTmpPath, kSnapshotMetaPath)) {
-    LOG_ERR("TDST", "Meta rename failed");
-    Storage.remove(kSnapshotMetaTmpPath);
-    return false;
-  }
-  return true;
 }
 
 void TodoistActivity::captureSnapshotIfNeeded() {
@@ -404,6 +261,39 @@ void TodoistActivity::captureSnapshotIfNeeded() {
   renderer.setOrientation(activityOrient);
 }
 
+bool TodoistActivity::writeSnapshotMeta(GfxRenderer::Orientation o) {
+  char buf[160];
+  int len = snprintf(buf, sizeof(buf), "{\"orientation\":\"%s\",\"captured_hour\":%u,\"captured_min\":%u}",
+                     orientationToString(o), static_cast<unsigned>(_capturedHour), static_cast<unsigned>(_capturedMin));
+  if (len <= 0 || len >= static_cast<int>(sizeof(buf))) {
+    LOG_ERR("TDST", "Meta format failed");
+    return false;
+  }
+
+  if (Storage.exists(kSnapshotMetaTmpPath)) Storage.remove(kSnapshotMetaTmpPath);
+
+  HalFile file;
+  if (!Storage.openFileForWrite("TDST", kSnapshotMetaTmpPath, file)) {
+    LOG_ERR("TDST", "Cannot open meta tmp");
+    return false;
+  }
+  size_t n = file.write(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(len));
+  file.close();
+  if (n != static_cast<size_t>(len)) {
+    LOG_ERR("TDST", "Short meta write");
+    Storage.remove(kSnapshotMetaTmpPath);
+    return false;
+  }
+
+  if (Storage.exists(kSnapshotMetaPath)) Storage.remove(kSnapshotMetaPath);
+  if (!Storage.rename(kSnapshotMetaTmpPath, kSnapshotMetaPath)) {
+    LOG_ERR("TDST", "Meta rename failed");
+    Storage.remove(kSnapshotMetaTmpPath);
+    return false;
+  }
+  return true;
+}
+
 void TodoistActivity::render(RenderLock&&) {
   switch (_state) {
     case State::Loading:
@@ -434,25 +324,6 @@ void TodoistActivity::renderError() {
 }
 
 void TodoistActivity::renderTaskList(bool drawHints) {
-  if (TODOIST_CONFIG.getDesignMode() == todoist::DesignMode::Daily) {
-    renderDaily(drawHints);
-  } else {
-    renderMinimal(drawHints);
-  }
-}
-
-namespace {
-
-// English month names for the Daily header. Kept local so the i18n layer
-// doesn't have to grow 12 new strings just for this view — when other
-// integrations need localised month names we'll lift this into I18n.
-constexpr const char* kMonthNames[12] = {"January", "February", "March",     "April",   "May",      "June",
-                                         "July",    "August",   "September", "October", "November", "December"};
-constexpr const char* kDayNames[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-
-}  // namespace
-
-void TodoistActivity::renderMinimal(bool drawHints) {
   renderer.clearScreen();
 
   const int pageWidth = renderer.getScreenWidth();
@@ -475,11 +346,8 @@ void TodoistActivity::renderMinimal(bool drawHints) {
   const int hintLeftReserve = (isLandscape && hintOnLeft) ? hintReserve : 0;
   const int hintRightReserve = (isLandscape && !hintOnLeft) ? hintReserve : 0;
 
-  char dateStr[8];
-  todoist::formatDate(_capturedDay, _capturedMonth, TODOIST_CONFIG.getDateFormat(), dateStr, sizeof(dateStr));
   char timestamp[32];
-  snprintf(timestamp, sizeof(timestamp), I18N.get(StrId::STR_TODOIST_TODAY_HEADER), dateStr, _capturedHour,
-           _capturedMin);
+  snprintf(timestamp, sizeof(timestamp), I18N.get(StrId::STR_TODOIST_TODAY_HEADER), _capturedHour, _capturedMin);
 
   // "Todoist" as bold title on the left, timestamp as small right-aligned
   // subtitle. Subtitle uses the smaller SMALL_FONT_ID inside drawHeader, so
@@ -511,210 +379,6 @@ void TodoistActivity::renderMinimal(bool drawHints) {
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - (isLandscape ? 0 : hintReserve);
-
-  const int sidePadding = metrics.contentSidePadding;
-  const int tileX = sidePadding + hintLeftReserve;
-  const int tileWidth = pageWidth - sidePadding * 2 - hintLeftReserve - hintRightReserve;
-  drawTaskRows(contentTop, contentHeight, tileX, tileWidth, drawHints, pageWidth);
-}
-
-void TodoistActivity::renderDaily(bool drawHints) {
-  renderer.clearScreen();
-
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const auto& metrics = UITheme::getInstance().getMetrics();
-
-  const auto orientation = renderer.getOrientation();
-  const bool isLandscape =
-      (orientation == GfxRenderer::LandscapeClockwise || orientation == GfxRenderer::LandscapeCounterClockwise);
-  const bool hintOnLeft = (orientation == GfxRenderer::LandscapeClockwise);
-  const int hintReserve = drawHints ? metrics.buttonHintsHeight + metrics.verticalSpacing * 2 : 0;
-  const int hintLeftReserve = (isLandscape && hintOnLeft) ? hintReserve : 0;
-  const int hintRightReserve = (isLandscape && !hintOnLeft) ? hintReserve : 0;
-
-  // Daily intentionally drops the standard header: it's a dashboard view,
-  // not a list/settings screen. The day-of-week is the visual anchor; a
-  // "Todoist" title would just compete for hierarchy. Battery is dropped
-  // with it — sleep snapshots already paint it over, and the active view
-  // is short-lived enough that a separate indicator isn't worth the noise.
-
-  if (drawHints) {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  }
-
-  // Available drawing area excluding hint reserves.
-  const int leftEdge = hintLeftReserve;
-  const int rightEdge = pageWidth - hintRightReserve;
-  const int columnWidth = rightEdge - leftEdge;
-  // A bit more top padding now that we no longer have the header strip
-  // anchoring the top of the view.
-  int y = metrics.topPadding + metrics.verticalSpacing * 2;
-
-  // "May 11, 2026" — small, centered, year-bearing label. The top-of-view
-  // date intentionally uses month-name format (not the dd/mm setting) so
-  // the year is unambiguous. The dd/mm setting still drives the per-task
-  // due-date suffix and the bottom "Updated" line.
-  {
-    const int monthIdx = (_capturedMonth >= 1 && _capturedMonth <= 12) ? _capturedMonth - 1 : 0;
-    char dateLine[32];
-    snprintf(dateLine, sizeof(dateLine), "%s %u, %u", kMonthNames[monthIdx], static_cast<unsigned>(_capturedDay),
-             static_cast<unsigned>(_capturedYear));
-    const int w = renderer.getTextWidth(UI_12_FONT_ID, dateLine);
-    renderer.drawText(UI_12_FONT_ID, leftEdge + (columnWidth - w) / 2, y, dateLine, true);
-    y += renderer.getLineHeight(UI_12_FONT_ID) + 4;
-  }
-
-  // "Monday" — large, bold, serif. The visual anchor of the Daily view.
-  {
-    const int dowIdx = (_capturedDow <= 6) ? _capturedDow : 0;
-    const char* dow = kDayNames[dowIdx];
-    const int w = renderer.getTextWidth(NOTOSERIF_18_FONT_ID, dow, EpdFontFamily::BOLD);
-    renderer.drawText(NOTOSERIF_18_FONT_ID, leftEdge + (columnWidth - w) / 2, y, dow, true, EpdFontFamily::BOLD);
-    y += renderer.getLineHeight(NOTOSERIF_18_FONT_ID) + 8;
-  }
-
-  // Divider above the weather strip.
-  renderer.drawLine(leftEdge + 12, y, rightEdge - 12, y, true);
-  y += 8;
-
-  // Weather row. Three columns:
-  //   [icon] <Condition>   |   <City>   |   <hi° / lo°>
-  // Icon + condition word left-aligned, city centered between the two
-  // outer blocks, temperatures right-aligned. The icon (16x16) mirrors
-  // the WMO bucket label so a glance reads even before the eye parses
-  // the text. The city is clipped UTF-8-safely if it would collide
-  // with either neighbour.
-  {
-    constexpr int kWeatherPadding = 16;
-    constexpr int kGap = 8;
-    constexpr int kIconSize = 24;
-    constexpr int kIconTextGap = 6;
-
-    // Right column: temperatures.
-    char tempsBuf[16];
-    if (_forecast.valid) {
-      // "22° / 14°" — same glyph style as the stub. Unit suffix is
-      // intentionally NOT appended per-value; the configured unit makes
-      // it unambiguous, and "22°C / 14°C" looks cluttered.
-      snprintf(tempsBuf, sizeof(tempsBuf), "%d\xC2\xB0 / %d\xC2\xB0", _forecast.hi, _forecast.lo);
-    } else {
-      // U+2014 em dash for both sides — same width on both ends so the
-      // row stays visually balanced even when offline.
-      snprintf(tempsBuf, sizeof(tempsBuf), "\xE2\x80\x94 / \xE2\x80\x94");
-    }
-    const int tempsW = renderer.getTextWidth(UI_12_FONT_ID, tempsBuf);
-    const int tempsX = rightEdge - kWeatherPadding - tempsW;
-
-    // Left column: icon + condition word. We bracket conditional bytes
-    // (em dash) into the same buffer as the WMO label so the layout
-    // code is single-path regardless of forecast validity.
-    const char* condition = _forecast.valid ? weather::wmoCodeToLabel(_forecast.wmoCode) : "\xE2\x80\x94";
-    const uint8_t* icon = _forecast.valid ? weather::wmoCodeToIcon(_forecast.wmoCode) : nullptr;
-
-    const int leftX = leftEdge + kWeatherPadding;
-    int leftCursor = leftX;
-    if (icon) {
-      // Optical alignment: drawText's `y` is the top of the text box and
-      // the baseline sits at y + ascender. Center the icon on the line
-      // box: line height is advanceY, so iconY = y + (advanceY - kIconSize)/2.
-      // UI_12 advanceY ≈ 29, so the icon top lands ~3px below y.
-      const int lineH = renderer.getLineHeight(UI_12_FONT_ID);
-      const int iconY = y + (lineH - kIconSize) / 2;
-      // Blit the 24x24 1-bit icon via drawPixel rather than drawIcon.
-      // Two reasons: (1) drawIcon uses a Portrait-only hardcoded
-      // transform, so the icon would land off-panel when the sleep
-      // snapshot is captured in a different orientation than the
-      // activity. drawPixel goes through rotateCoordinates so all four
-      // orientations work. (2) drawImageTransparent's blit truncates x
-      // to a byte boundary, which under Portrait's logical→physical
-      // mapping snaps the icon's logical y to multiples of 8 — visible
-      // as a 0-7px upward drift. Per-pixel writes bypass that. Bit 0
-      // = black, 1 = transparent (per weather.h).
-      for (int row = 0; row < kIconSize; ++row) {
-        for (int col = 0; col < kIconSize; ++col) {
-          const int byteIdx = row * (kIconSize / 8) + (col / 8);
-          const uint8_t mask = static_cast<uint8_t>(1 << (7 - (col % 8)));
-          if ((icon[byteIdx] & mask) == 0) {
-            renderer.drawPixel(leftCursor + col, iconY + row, true);
-          }
-        }
-      }
-      leftCursor += kIconSize + kIconTextGap;
-    }
-    renderer.drawText(UI_12_FONT_ID, leftCursor, y, condition, true);
-    const int conditionW = renderer.getTextWidth(UI_12_FONT_ID, condition);
-    const int leftBlockRight = leftCursor + conditionW;
-
-    // Center column: city. Clipped to fit between the left block and
-    // the temperature column. UTF-8 safety: truncation may land
-    // mid-codepoint, so back up past any continuation bytes (0b10xxxxxx)
-    // before placing the NUL.
-    if (_forecast.locationName[0] != '\0') {
-      char cityBuf[32];
-      snprintf(cityBuf, sizeof(cityBuf), "%s", _forecast.locationName);
-
-      const int cityMaxWidth = (tempsX - kGap) - (leftBlockRight + kGap);
-      if (cityMaxWidth > 0) {
-        size_t len = strlen(cityBuf);
-        while (len > 0 && renderer.getTextWidth(UI_12_FONT_ID, cityBuf) > cityMaxWidth) {
-          --len;
-          while (len > 0 && (static_cast<unsigned char>(cityBuf[len]) & 0xC0) == 0x80) --len;
-          cityBuf[len] = '\0';
-        }
-        if (cityBuf[0] != '\0') {
-          const int cityW = renderer.getTextWidth(UI_12_FONT_ID, cityBuf);
-          // Center in the full content column, but clamp so we don't
-          // overlap either neighbour after truncation.
-          int cityX = leftEdge + (columnWidth - cityW) / 2;
-          const int minCityX = leftBlockRight + kGap;
-          const int maxCityX = tempsX - kGap - cityW;
-          if (cityX < minCityX) cityX = minCityX;
-          if (cityX > maxCityX) cityX = maxCityX;
-          renderer.drawText(UI_12_FONT_ID, cityX, y, cityBuf, true);
-        }
-      }
-    }
-
-    renderer.drawText(UI_12_FONT_ID, tempsX, y, tempsBuf, true);
-    y += renderer.getLineHeight(UI_12_FONT_ID) + 8;
-  }
-
-  // Divider below the weather strip — separates the dashboard chrome from
-  // the task list so the list reads as its own region.
-  renderer.drawLine(leftEdge + 12, y, rightEdge - 12, y, true);
-  y += 6;
-
-  // Bottom "Updated dd/mm - HH:MM" line, centered, framed by a divider
-  // above it. Mirrors the top weather sandwich so the chrome reads
-  // symmetrically.
-  char dateStr[8];
-  todoist::formatDate(_capturedDay, _capturedMonth, TODOIST_CONFIG.getDateFormat(), dateStr, sizeof(dateStr));
-  char updatedLine[32];
-  snprintf(updatedLine, sizeof(updatedLine), I18N.get(StrId::STR_TODOIST_TODAY_HEADER), dateStr, _capturedHour,
-           _capturedMin);
-
-  const int updatedLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  constexpr int kBottomPadding = 4;
-  constexpr int kBottomDividerGap = 6;
-  const int updatedY = pageHeight - (isLandscape ? 0 : hintReserve) - updatedLineHeight - kBottomPadding;
-  const int bottomDividerY = updatedY - kBottomDividerGap;
-  renderer.drawLine(leftEdge + 12, bottomDividerY, rightEdge - 12, bottomDividerY, true);
-  {
-    const int w = renderer.getTextWidth(SMALL_FONT_ID, updatedLine);
-    renderer.drawText(SMALL_FONT_ID, leftEdge + (columnWidth - w) / 2, updatedY, updatedLine, true);
-  }
-
-  // Task region sits between the lower divider and the bottom divider.
-  const int contentTop = y;
-  const int contentBottom = bottomDividerY - 4;
-  const int contentHeight = std::max(0, contentBottom - contentTop);
-
-  if (_tasks.empty()) {
-    GUI.drawPopup(renderer, tr(STR_TODOIST_NO_TASKS));
-    return;
-  }
 
   const int sidePadding = metrics.contentSidePadding;
   const int tileX = sidePadding + hintLeftReserve;
@@ -811,12 +475,12 @@ void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX,
     // first title line. dueDate is "YYYY-MM-DD"; index 5..6 = month,
     // 8..9 = day. Dropping the year keeps the column narrow — filter ranges
     // never span more than a couple of months, so the year is implicit.
-    // Order/separator come from the user-configured DateFormat.
+    // Order/separator is fixed dd/mm.
     if (showDate) {
       const int day = (t.dueDate[8] - '0') * 10 + (t.dueDate[9] - '0');
       const int mon = (t.dueDate[5] - '0') * 10 + (t.dueDate[6] - '0');
       char dateBuf[8];
-      todoist::formatDate(day, mon, TODOIST_CONFIG.getDateFormat(), dateBuf, sizeof(dateBuf));
+      snprintf(dateBuf, sizeof(dateBuf), "%02d/%02d", day, mon);
       const int dateWidth = renderer.getTextWidth(UI_10_FONT_ID, dateBuf);
       const int dateX = tileX + tileWidth - kTilePaddingX - dateWidth;
       renderer.drawText(UI_10_FONT_ID, dateX, firstLineY, dateBuf, true);
@@ -836,5 +500,20 @@ void TodoistActivity::drawTaskRows(int contentTop, int contentHeight, int tileX,
     const int maxOffset = std::max(1, totalTasks - rendered);
     const int barY = contentTop + ((barTrackHeight - barHeight) * _scrollOffset) / maxOffset;
     renderer.fillRect(barX, barY, 2, barHeight, true);
+  }
+}
+
+StrId TodoistActivity::fetchResultToStrId(todoist::FetchResult r) const {
+  switch (r) {
+    case todoist::FetchResult::InvalidToken:
+      return StrId::STR_TODOIST_INVALID_TOKEN;
+    case todoist::FetchResult::RateLimited:
+      return StrId::STR_TODOIST_RATE_LIMITED;
+    case todoist::FetchResult::Ok:
+    case todoist::FetchResult::ServerError:
+    case todoist::FetchResult::NetworkError:
+    case todoist::FetchResult::ParseError:
+    default:
+      return StrId::STR_TODOIST_FETCH_FAILED;
   }
 }

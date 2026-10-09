@@ -6,22 +6,16 @@
 
 /**
  * Submenu for Todoist integration settings.
- * Items (in order): design mode, sleep-screen toggle, activity orientation,
- * snapshot orientation, date filter, overdue filter, GMT offset, date format,
- * temperature unit, location, forget.
+ * Items (in order): sleep-screen toggle, activity orientation,
+ * snapshot orientation, forget.
  */
 class TodoistSettingsActivity final : public UiListActivity {
  public:
-  static constexpr int kItemCount = 11;
+  static constexpr int kItemCount = 4;
 
   TodoistSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
  private:
-  // Opens the on-screen keyboard for city entry and, on confirm, geocodes
-  // via Open-Meteo + persists. Must only be called when WiFi is already
-  // connected — the caller (activateIndex case 9) is responsible for
-  // launching WifiSelectionActivity first if not.
-  void launchCityEntry();
   GfxRenderer::Orientation nextOrientation(GfxRenderer::Orientation current) const;
 
   // Row storage: kItemCount is a compile-time constant, so fixed-capacity
