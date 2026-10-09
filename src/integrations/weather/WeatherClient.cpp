@@ -1,7 +1,5 @@
 #include "WeatherClient.h"
 
-#include "components/icons/weather.h"
-
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Logging.h>
@@ -14,6 +12,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+
+#include "components/icons/weather.h"
 
 namespace weather {
 
@@ -62,9 +62,8 @@ bool urlEncode(const char* in, char* out, size_t outSize) {
   size_t o = 0;
   for (const unsigned char* p = reinterpret_cast<const unsigned char*>(in); *p; ++p) {
     unsigned char c = *p;
-    bool unreserved = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                      (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-                      c == '.' || c == '~';
+    bool unreserved = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ||
+                      c == '_' || c == '.' || c == '~';
     if (unreserved) {
       if (o + 1 >= outSize) return false;
       out[o++] = static_cast<char>(c);
@@ -103,9 +102,7 @@ esp_err_t httpEventHandler(esp_http_client_event_t* evt) {
       size_t freeBytes = heap_caps_get_free_size(MALLOC_CAP_8BIT);
       size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
       LOG_ERR("WTHR", "OOM allocating %u-byte response buffer (free=%u, largest=%u)",
-              static_cast<unsigned>(buf->capacity),
-              static_cast<unsigned>(freeBytes),
-              static_cast<unsigned>(largest));
+              static_cast<unsigned>(buf->capacity), static_cast<unsigned>(freeBytes), static_cast<unsigned>(largest));
       return ESP_OK;
     }
   }
@@ -164,8 +161,7 @@ FetchResult performGetOnce(const char* url, ResponseBuffer& outBuf) {
   const int httpCode = esp_http_client_get_status_code(client);
   esp_http_client_cleanup(client);
 
-  LOG_DBG("WTHR", "GET HTTP %d (err=%d, %u bytes%s)", httpCode, err,
-          static_cast<unsigned>(outBuf.size),
+  LOG_DBG("WTHR", "GET HTTP %d (err=%d, %u bytes%s)", httpCode, err, static_cast<unsigned>(outBuf.size),
           outBuf.truncated ? " [truncated]" : "");
 
   if (err != ESP_OK || outBuf.allocFailed) {
@@ -206,9 +202,8 @@ FetchResult performGet(const char* url, ResponseBuffer& outBuf) {
 
 }  // namespace
 
-FetchResult WeatherClient::geocodeCity(const char* nameUtf8, double& outLat,
-                                      double& outLon, char* outCanonical,
-                                      size_t canonicalSize) {
+FetchResult WeatherClient::geocodeCity(const char* nameUtf8, double& outLat, double& outLon, char* outCanonical,
+                                       size_t canonicalSize) {
   if (canonicalSize == 0 || !nameUtf8 || nameUtf8[0] == '\0') {
     return FetchResult::ParseError;
   }
@@ -266,19 +261,15 @@ FetchResult WeatherClient::geocodeCity(const char* nameUtf8, double& outLat,
   if (len >= canonicalSize) len = canonicalSize - 1;
   memcpy(outCanonical, canonical, len);
   outCanonical[len] = '\0';
-  LOG_DBG("WTHR", "Geocoded '%s' → %.4f,%.4f (%s)", nameUtf8, outLat, outLon,
-          outCanonical);
+  LOG_DBG("WTHR", "Geocoded '%s' → %.4f,%.4f (%s)", nameUtf8, outLat, outLon, outCanonical);
   return FetchResult::Ok;
 }
 
-FetchResult WeatherClient::fetchForecast(double lat, double lon,
-                                        TemperatureUnit unit,
-                                        Forecast& out) {
+FetchResult WeatherClient::fetchForecast(double lat, double lon, TemperatureUnit unit, Forecast& out) {
   out.valid = false;
 
   char url[192];
-  int n = snprintf(url, sizeof(url), kForecastEndpointFmt, lat, lon,
-                   temperatureUnitToString(unit));
+  int n = snprintf(url, sizeof(url), kForecastEndpointFmt, lat, lon, temperatureUnitToString(unit));
   if (n <= 0 || n >= static_cast<int>(sizeof(url))) {
     LOG_ERR("WTHR", "URL format failed");
     return FetchResult::NetworkError;
@@ -327,31 +318,60 @@ const char* wmoCodeToLabel(uint8_t code) {
   // WMO 4677 codes as exposed by Open-Meteo. Short labels chosen to fit on
   // the Daily dashboard (single line, no truncation in portrait).
   switch (code) {
-    case 0:  return "Clear";
-    case 1:  return "Mainly clear";
-    case 2:  return "Partly cloudy";
-    case 3:  return "Overcast";
-    case 45: case 48: return "Fog";
-    case 51: return "Light drizzle";
-    case 53: return "Drizzle";
-    case 55: return "Heavy drizzle";
-    case 56: case 57: return "Freezing drizzle";
-    case 61: return "Light rain";
-    case 63: return "Rain";
-    case 65: return "Heavy rain";
-    case 66: case 67: return "Freezing rain";
-    case 71: return "Light snow";
-    case 73: return "Snow";
-    case 75: return "Heavy snow";
-    case 77: return "Snow grains";
-    case 80: return "Showers";
-    case 81: return "Heavy showers";
-    case 82: return "Violent showers";
-    case 85: return "Snow showers";
-    case 86: return "Heavy snow showers";
-    case 95: return "Thunderstorm";
-    case 96: case 99: return "Storm w/ hail";
-    default: return "\xE2\x80\x94";  // U+2014 em dash
+    case 0:
+      return "Clear";
+    case 1:
+      return "Mainly clear";
+    case 2:
+      return "Partly cloudy";
+    case 3:
+      return "Overcast";
+    case 45:
+    case 48:
+      return "Fog";
+    case 51:
+      return "Light drizzle";
+    case 53:
+      return "Drizzle";
+    case 55:
+      return "Heavy drizzle";
+    case 56:
+    case 57:
+      return "Freezing drizzle";
+    case 61:
+      return "Light rain";
+    case 63:
+      return "Rain";
+    case 65:
+      return "Heavy rain";
+    case 66:
+    case 67:
+      return "Freezing rain";
+    case 71:
+      return "Light snow";
+    case 73:
+      return "Snow";
+    case 75:
+      return "Heavy snow";
+    case 77:
+      return "Snow grains";
+    case 80:
+      return "Showers";
+    case 81:
+      return "Heavy showers";
+    case 82:
+      return "Violent showers";
+    case 85:
+      return "Snow showers";
+    case 86:
+      return "Heavy snow showers";
+    case 95:
+      return "Thunderstorm";
+    case 96:
+    case 99:
+      return "Storm w/ hail";
+    default:
+      return "\xE2\x80\x94";  // U+2014 em dash
   }
 }
 
@@ -369,16 +389,30 @@ const uint8_t* wmoCodeToIcon(uint8_t code) {
     case 45:
     case 48:
       return WeatherFogIcon;
-    case 51: case 53: case 55:
-    case 56: case 57:
-    case 61: case 63: case 65:
-    case 66: case 67:
-    case 80: case 81: case 82:
+    case 51:
+    case 53:
+    case 55:
+    case 56:
+    case 57:
+    case 61:
+    case 63:
+    case 65:
+    case 66:
+    case 67:
+    case 80:
+    case 81:
+    case 82:
       return WeatherRainIcon;
-    case 71: case 73: case 75: case 77:
-    case 85: case 86:
+    case 71:
+    case 73:
+    case 75:
+    case 77:
+    case 85:
+    case 86:
       return WeatherSnowIcon;
-    case 95: case 96: case 99:
+    case 95:
+    case 96:
+    case 99:
       return WeatherStormIcon;
     default:
       return nullptr;
@@ -389,8 +423,6 @@ const char* temperatureUnitToString(TemperatureUnit u) {
   return (u == TemperatureUnit::Fahrenheit) ? "fahrenheit" : "celsius";
 }
 
-char temperatureUnitSuffix(TemperatureUnit u) {
-  return (u == TemperatureUnit::Fahrenheit) ? 'F' : 'C';
-}
+char temperatureUnitSuffix(TemperatureUnit u) { return (u == TemperatureUnit::Fahrenheit) ? 'F' : 'C'; }
 
 }  // namespace weather

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "WeatherTypes.h"
-
 #include <cstddef>
+
+#include "WeatherTypes.h"
 
 namespace weather {
 
@@ -18,8 +18,7 @@ class WeatherClient {
   // placed in the URL. ParseError is returned when the API has zero
   // results (typo / unknown city) so the caller can distinguish that from
   // a network failure.
-  static FetchResult geocodeCity(const char* nameUtf8, double& outLat,
-                                 double& outLon, char* outCanonical,
+  static FetchResult geocodeCity(const char* nameUtf8, double& outLat, double& outLon, char* outCanonical,
                                  size_t canonicalSize);
 
   // Fetches today's daily forecast (high/low + WMO code) from Open-Meteo
@@ -27,9 +26,7 @@ class WeatherClient {
   // `out.locationName` is NOT populated here — the caller (TodoistActivity)
   // copies it in from the cached config or from geolocateByIP. On any
   // non-Ok return, `out.valid` is left false.
-  static FetchResult fetchForecast(double lat, double lon,
-                                   TemperatureUnit unit,
-                                   Forecast& out);
+  static FetchResult fetchForecast(double lat, double lon, TemperatureUnit unit, Forecast& out);
 };
 
 }  // namespace weather

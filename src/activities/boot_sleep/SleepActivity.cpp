@@ -28,8 +28,8 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
-#include "integrations/todoist/TodoistConfig.h"
 #include "images/MoonIcon.h"
+#include "integrations/todoist/TodoistConfig.h"
 
 namespace {
 // Metalio: B/W sleep images use the full 0xF7 waveform instead of HALF (two
@@ -920,7 +920,7 @@ bool SleepActivity::tryRenderTodoistSleepScreen() const {
   }
 
   // Read meta and verify orientation matches the configured snapshot orientation.
-  FsFile metaFile;
+  HalFile metaFile;
   if (!Storage.openFileForRead("TDST", "/.crosspoint/todoist_sleep.meta", metaFile)) return false;
 
   std::string buf;
@@ -941,17 +941,25 @@ bool SleepActivity::tryRenderTodoistSleepScreen() const {
   auto cfgOrient = TodoistConfig::getInstance().getSnapshotOrientation();
   const char* expected = nullptr;
   switch (cfgOrient) {
-    case GfxRenderer::Orientation::Portrait:                  expected = "portrait"; break;
-    case GfxRenderer::Orientation::PortraitInverted:          expected = "portrait_inverted"; break;
-    case GfxRenderer::Orientation::LandscapeClockwise:        expected = "landscape_cw"; break;
-    case GfxRenderer::Orientation::LandscapeCounterClockwise: expected = "landscape_ccw"; break;
+    case GfxRenderer::Orientation::Portrait:
+      expected = "portrait";
+      break;
+    case GfxRenderer::Orientation::PortraitInverted:
+      expected = "portrait_inverted";
+      break;
+    case GfxRenderer::Orientation::LandscapeClockwise:
+      expected = "landscape_cw";
+      break;
+    case GfxRenderer::Orientation::LandscapeCounterClockwise:
+      expected = "landscape_ccw";
+      break;
   }
   if (!expected || strcmp(orient, expected) != 0) {
     LOG_DBG("TDST", "Snapshot orientation mismatch (got %s, want %s)", orient, expected ? expected : "?");
     return false;
   }
 
-  FsFile bmpFile;
+  HalFile bmpFile;
   if (!Storage.openFileForRead("TDST", "/.crosspoint/todoist_sleep.bmp", bmpFile)) return false;
 
   renderer.setOrientation(cfgOrient);

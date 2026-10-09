@@ -1,12 +1,12 @@
 #pragma once
 
-#include "integrations/weather/WeatherTypes.h"
-
 #include <GfxRenderer.h>
 
 #include <cstdint>
 #include <ctime>
 #include <string>
+
+#include "integrations/weather/WeatherTypes.h"
 
 namespace todoist {
 
@@ -42,7 +42,7 @@ enum class OverdueFilter : uint8_t {
 // stamp moved to the bottom. The sleep-screen snapshot mirrors whichever
 // design is active.
 enum class DesignMode : uint8_t {
-  Minimal = 0,   // ← default, backwards-compatible
+  Minimal = 0,  // ← default, backwards-compatible
   Daily = 1,
 };
 
@@ -51,12 +51,12 @@ enum class DesignMode : uint8_t {
 // every variant — task date ranges never span multiple years in normal
 // use, so the year is implicit and the column stays narrow.
 enum class DateFormat : uint8_t {
-  DayMonthSlash = 0,   // 31/12                               ← default
-  MonthDaySlash = 1,   // 12/31
-  DayMonthDash = 2,    // 31-12
-  MonthDayDash = 3,    // 12-31
-  DayMonthDot = 4,     // 31.12
-  MonthDayDot = 5,     // 12.31
+  DayMonthSlash = 0,  // 31/12                               ← default
+  MonthDaySlash = 1,  // 12/31
+  DayMonthDash = 2,   // 31-12
+  MonthDayDash = 3,   // 12-31
+  DayMonthDot = 4,    // 31.12
+  MonthDayDot = 5,    // 12.31
 };
 
 // Render a date into `out` according to `fmt`. Always writes a NUL terminator.
@@ -81,12 +81,12 @@ const char* designModeToString(DesignMode d);
 // residential ISP users, overridable for anyone on Starlink/CGNAT/VPN
 // where IP geolocation misreports the city.
 enum class LocationMode : uint8_t {
-  Auto = 0,    // ← default
+  Auto = 0,  // ← default
   Manual = 1,
 };
 
 enum class GmtMode : uint8_t {
-  Auto = 0,    // ← default
+  Auto = 0,  // ← default
   Manual = 1,
 };
 
@@ -230,8 +230,7 @@ class TodoistConfig {
   // Persist the result of an ip-api.com fetch. fetchedAt is a unix epoch
   // (typically `time(nullptr)` from the caller). Invalidates the cached
   // weather because the auto coords may have moved.
-  bool setAutoLocation(double lat, double lon, const char* cityUtf8,
-                       int offsetSeconds, time_t fetchedAt);
+  bool setAutoLocation(double lat, double lon, const char* cityUtf8, int offsetSeconds, time_t fetchedAt);
 
   // Reset the *manual* location to "not set". The auto cache is unaffected.
   // Invalidates the cached weather.
