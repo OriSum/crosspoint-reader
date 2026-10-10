@@ -1,76 +1,72 @@
 #include "OtaUpdater.h"
 
+// clang-format off
+// HttpDownloader.h pulls Arduino/SdFat, whose macros collide with lwip's
+// ip4_addr.h unless seen first. Pin this order; clang-format would otherwise sort
+// the local header last and break the build.
+#include "HttpDownloader.h"
 #include <Logging.h>
+#include <Memory.h>
 #include <ReleaseJsonParser.h>
-#include <esp_crt_bundle.h>
-#include <esp_http_client.h>
-#include <esp_https_ota.h>
-#include <esp_wifi.h>
+#include <esp_ota_ops.h>
+// clang-format on
+
+#include <algorithm>
+#include <cstring>
+#include <string>
+
+#include "FirmwareBoardTag.h"
+#include "FirmwareFlasher.h"
 
 namespace {
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
-
-esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
-  return esp_http_client_set_header(http_client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
-}
-
-size_t totalBytesReceived = 0;
-
-esp_err_t event_handler(esp_http_client_event_t* event) {
-  if (event->event_id != HTTP_EVENT_ON_DATA) return ESP_OK;
-  totalBytesReceived += event->data_len;
-  LOG_DBG("OTA", "HTTP chunk: %d bytes (total: %zu)", event->data_len, totalBytesReceived);
-  auto* parser = static_cast<ReleaseJsonParser*>(event->user_data);
-  parser->feed(static_cast<const char*>(event->data), event->data_len);
-  return ESP_OK;
-}
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
-  esp_err_t esp_err;
-  ReleaseJsonParser releaseParser;
-
-  esp_http_client_config_t client_config = {
-      .url = latestReleaseUrl,
-      .event_handler = event_handler,
-      .buffer_size = 8192,
-      .buffer_size_tx = 8192,
-      .user_data = &releaseParser,
-      .skip_cert_common_name_check = true,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = true,
-  };
-
-  totalBytesReceived = 0;
   LOG_DBG("OTA", "Checking for update (current: %s)", CROSSPOINT_VERSION);
 
-  esp_http_client_handle_t client_handle = esp_http_client_init(&client_config);
-  if (!client_handle) {
-    LOG_ERR("OTA", "HTTP Client Handle Failed");
-    return INTERNAL_UPDATE_ERROR;
+  // Stream the ~32KB release JSON straight into the parser as it arrives.
+  // Buffering the whole body in a std::string would add a growing allocation
+  // on top of the TLS session's heap during the fetch; with -fno-exceptions an
+  // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
+  // User-Agent (see HttpDownloader).
+  // Heap-allocated: the parser embeds a 2 KB JSON token buffer.
+  auto releaseParserPtr = makeUniqueNoThrow<ReleaseJsonParser>();
+  if (!releaseParserPtr) {
+    LOG_ERR("OTA", "OOM: release parser");
+    return OOM_ERROR;
   }
-
-  esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_http_client_set_header Failed : %s", esp_err_to_name(esp_err));
-    esp_http_client_cleanup(client_handle);
-    return INTERNAL_UPDATE_ERROR;
+  ReleaseJsonParser& releaseParser = *releaseParserPtr;
+  releaseParser.setFirmwareAssetName("");
+  // Each board updates from crosspoint-<version>-<device>.bin. The combined
+  // C3 image uses x3-x4; other asset suffixes match their firmware board tag.
+  const bool isX4 = board_tag::boardNameLen() == 2 && memcmp(board_tag::boardName(), "x4", 2) == 0;
+  char assetSuffix[20] = "-x3-x4";
+  if (!isX4) {
+    snprintf(assetSuffix, sizeof(assetSuffix), "-%.*s", static_cast<int>(board_tag::boardNameLen()),
+             board_tag::boardName());
   }
-
-  esp_err = esp_http_client_perform(client_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_http_client_perform Failed : %s", esp_err_to_name(esp_err));
-    esp_http_client_cleanup(client_handle);
+  char assetName[48] = {};
+  bool assetNameSet = false;
+  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&](const uint8_t* data, size_t len) {
+    size_t offset = 0;
+    while (!assetNameSet && offset < len) {
+      releaseParser.feed(reinterpret_cast<const char*>(data + offset), 1);
+      offset++;
+      if (releaseParser.foundTag()) {
+        snprintf(assetName, sizeof(assetName), "crosspoint-%s%s.bin", releaseParser.getTagName(), assetSuffix);
+        releaseParser.setFirmwareAssetName(assetName);
+        assetNameSet = true;
+      }
+    }
+    if (offset < len) releaseParser.feed(reinterpret_cast<const char*>(data + offset), len - offset);
+    return true;
+  });
+  if (!ok) {
+    LOG_ERR("OTA", "Release check fetch failed");
     return HTTP_ERROR;
   }
 
-  esp_err = esp_http_client_cleanup(client_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_http_client_cleanup Failed : %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
-  }
-
-  LOG_DBG("OTA", "Response received: %zu bytes total", totalBytesReceived);
   LOG_DBG("OTA", "Parser results: tag=%s firmware=%s", releaseParser.foundTag() ? "yes" : "no",
           releaseParser.foundFirmware() ? "yes" : "no");
 
@@ -80,7 +76,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   if (!releaseParser.foundFirmware()) {
-    LOG_ERR("OTA", "No firmware.bin asset found");
+    LOG_INF("OTA", "No %s asset in latest release", assetName);
     return NO_UPDATE;
   }
 
@@ -145,62 +141,100 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return UPDATE_OLDER_ERROR;
   }
 
-  esp_https_ota_handle_t ota_handle = NULL;
-  esp_err_t esp_err;
-
-  esp_http_client_config_t client_config = {
-      .url = otaUrl.c_str(),
-      .timeout_ms = 15000,
-      /* Default HTTP client buffer size 512 byte only
-       * not sufficient to handle URL redirection cases or
-       * parsing of large HTTP headers.
-       */
-      .buffer_size = 8192,
-      .buffer_size_tx = 8192,
-      .skip_cert_common_name_check = true,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = true,
-  };
-
-  esp_https_ota_config_t ota_config = {
-      .http_config = &client_config,
-      .http_client_init_cb = http_client_set_header_cb,
-  };
-
-  /* For better timing and connectivity, we disable power saving for WiFi */
-  esp_wifi_set_ps(WIFI_PS_NONE);
-
-  esp_err = esp_https_ota_begin(&ota_config, &ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
+  // esp_https_ota is hardwired to esp-tls/mbedTLS, whose precompiled build on this
+  // package can't negotiate TLS 1.3 (see SecureClient.h). Drive the OTA partition
+  // ourselves and stream the firmware through HttpDownloader, which runs over
+  // wolfSSL when FREEINK_NET_WOLFSSL is set, reusing its redirect handling for the
+  // GitHub -> CDN hop.
+  const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
+  if (!updatePartition) {
+    LOG_ERR("OTA", "No OTA partition available");
     return INTERNAL_UPDATE_ERROR;
   }
 
-  do {
-    esp_err = esp_https_ota_perform(ota_handle);
-    processedSize = esp_https_ota_get_image_len_read(ota_handle);
-    if (onProgress) onProgress(ctx);
-    delay(100);  // TODO: should we replace this with something better?
-  } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
-
-  /* Return back to default power saving for WiFi in case of failing */
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-
+  esp_ota_handle_t otaHandle = 0;
+  esp_err_t esp_err = esp_ota_begin(updatePartition, OTA_SIZE_UNKNOWN, &otaHandle);
   if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
-    return HTTP_ERROR;
-  }
-
-  if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-    LOG_ERR("OTA", "esp_https_ota_is_complete_data_received Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
+    LOG_ERR("OTA", "esp_ota_begin failed: %s", esp_err_to_name(esp_err));
     return INTERNAL_UPDATE_ERROR;
   }
 
-  esp_err = esp_https_ota_finish(ota_handle);
+  processedSize = 0;
+  int lastReportedPct = -1;
+  bool flashOk = true;
+  // The image streams in chunks; only the first bytes carry the header. Buffer
+  // the first 14 bytes so we can read chip_id (esp_image_header_t offset 12)
+  // and reject a wrong-MCU image before it overwrites the OTA partition.
+  uint8_t hdr[14];
+  size_t hdrLen = 0;
+  bool wrongChip = false;
+  // All S3 boards share a chip_id, so also scan the stream for the embedded
+  // board tag (FirmwareBoardTag.h). An untagged image passes; a tag naming a
+  // different board aborts the download. The wrong image may partially land in
+  // the inactive OTA slot, but esp_ota_abort() below means it never becomes
+  // the boot target.
+  board_tag::Scanner tagScanner;
+  const bool fetchOk = HttpDownloader::fetchUrl(otaUrl, [&](const uint8_t* data, size_t len) {
+    if (hdrLen < sizeof(hdr)) {
+      const size_t take = std::min(len, sizeof(hdr) - hdrLen);
+      std::memcpy(hdr + hdrLen, data, take);
+      hdrLen += take;
+      if (hdrLen == sizeof(hdr)) {
+        uint16_t imageChip;
+        std::memcpy(&imageChip, hdr + 12, sizeof(imageChip));
+        const uint16_t deviceChip = firmware_flash::runningPartitionChipId();
+        if (deviceChip != 0xFFFF && imageChip != deviceChip) {
+          LOG_ERR("OTA", "wrong chip: image=0x%04X device=0x%04X", imageChip, deviceChip);
+          wrongChip = true;
+          return false;  // abort the transfer
+        }
+      }
+    }
+    tagScanner.feed(data, len);
+    if (tagScanner.mismatch()) {
+      LOG_ERR("OTA", "wrong board: image=%s device=%.*s", tagScanner.foundName(),
+              static_cast<int>(board_tag::boardNameLen()), board_tag::boardName());
+      return false;  // abort the transfer
+    }
+    if (esp_ota_write(otaHandle, data, len) != ESP_OK) {
+      flashOk = false;
+      return false;  // abort the transfer
+    }
+    processedSize += len;
+    // Fire the callback only on whole-percent change. Per-chunk updates wake the
+    // render task, whose framebuffer work contends with TLS on the internal arena,
+    // and e-ink can't repaint faster than a percent tick anyway.
+    if (onProgress && totalSize > 0) {
+      const int pct = static_cast<int>(static_cast<uint64_t>(processedSize) * 100 / totalSize);
+      if (pct != lastReportedPct) {
+        lastReportedPct = pct;
+        onProgress(ctx);
+      }
+    }
+    return true;
+  });
+
+  if (wrongChip || tagScanner.mismatch()) {
+    LOG_ERR("OTA", "Firmware install aborted: wrong device");
+    esp_ota_abort(otaHandle);
+    return WRONG_DEVICE_ERROR;
+  }
+
+  if (!fetchOk || !flashOk) {
+    LOG_ERR("OTA", "Firmware install failed (%s)", flashOk ? "download" : "flash write");
+    esp_ota_abort(otaHandle);
+    return flashOk ? HTTP_ERROR : INTERNAL_UPDATE_ERROR;
+  }
+
+  esp_err = esp_ota_end(otaHandle);  // verifies the written image
   if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_finish Failed: %s", esp_err_to_name(esp_err));
+    LOG_ERR("OTA", "esp_ota_end failed: %s", esp_err_to_name(esp_err));
+    return INTERNAL_UPDATE_ERROR;
+  }
+
+  esp_err = esp_ota_set_boot_partition(updatePartition);
+  if (esp_err != ESP_OK) {
+    LOG_ERR("OTA", "esp_ota_set_boot_partition failed: %s", esp_err_to_name(esp_err));
     return INTERNAL_UPDATE_ERROR;
   }
 
