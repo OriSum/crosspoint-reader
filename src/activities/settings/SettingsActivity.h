@@ -18,6 +18,7 @@ enum class SettingAction {
   CustomiseStatusBar,
   ClockSettings,
   KOReaderSync,
+  TodoistSettings,
   OPDSBrowser,
   Network,
   ClearCache,

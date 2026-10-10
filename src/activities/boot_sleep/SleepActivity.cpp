@@ -1,5 +1,6 @@
 #include "SleepActivity.h"
 
+#include <ArduinoJson.h>
 #include <BitmapHelpers.h>
 #include <Epub.h>
 #include <Epub/converters/PngToFramebufferConverter.h>
@@ -28,6 +29,7 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "integrations/todoist/TodoistConfig.h"
 
 namespace {
 // Metalio: B/W sleep images use the full 0xF7 waveform instead of HALF (two
@@ -566,6 +568,10 @@ void SleepActivity::onEnter() {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
 
+  if (tryRenderTodoistSleepScreen()) {
+    return;
+  }
+
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
@@ -895,4 +901,75 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
   renderer.displayBuffer(kSleepClean);
+}
+
+bool SleepActivity::tryRenderTodoistSleepScreen() const {
+  using todoist::TodoistConfig;
+
+  if (!TodoistConfig::getInstance().isSleepScreenEnabled()) {
+    LOG_DBG("TDST", "Sleep screen skipped: sleep_screen_enabled=false in config");
+    return false;
+  }
+  if (!Storage.exists("/.crosspoint/todoist_sleep.bmp")) {
+    LOG_DBG("TDST", "Sleep screen skipped: /.crosspoint/todoist_sleep.bmp missing");
+    return false;
+  }
+  if (!Storage.exists("/.crosspoint/todoist_sleep.meta")) {
+    LOG_DBG("TDST", "Sleep screen skipped: /.crosspoint/todoist_sleep.meta missing");
+    return false;
+  }
+
+  // Read meta and verify orientation matches the configured snapshot orientation.
+  HalFile metaFile;
+  if (!Storage.openFileForRead("TDST", "/.crosspoint/todoist_sleep.meta", metaFile)) return false;
+
+  std::string buf;
+  buf.reserve(256);
+  uint8_t chunk[128];
+  while (true) {
+    int n = metaFile.read(chunk, sizeof(chunk));
+    if (n <= 0) break;
+    buf.append(reinterpret_cast<const char*>(chunk), static_cast<size_t>(n));
+    if (buf.size() > 1024) break;  // sanity cap
+  }
+  metaFile.close();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, buf)) return false;
+
+  const char* orient = doc["orientation"] | "";
+  auto cfgOrient = TodoistConfig::getInstance().getSnapshotOrientation();
+  const char* expected = nullptr;
+  switch (cfgOrient) {
+    case GfxRenderer::Orientation::Portrait:
+      expected = "portrait";
+      break;
+    case GfxRenderer::Orientation::PortraitInverted:
+      expected = "portrait_inverted";
+      break;
+    case GfxRenderer::Orientation::LandscapeClockwise:
+      expected = "landscape_cw";
+      break;
+    case GfxRenderer::Orientation::LandscapeCounterClockwise:
+      expected = "landscape_ccw";
+      break;
+  }
+  if (!expected || strcmp(orient, expected) != 0) {
+    LOG_DBG("TDST", "Snapshot orientation mismatch (got %s, want %s)", orient, expected ? expected : "?");
+    return false;
+  }
+
+  HalFile bmpFile;
+  if (!Storage.openFileForRead("TDST", "/.crosspoint/todoist_sleep.bmp", bmpFile)) return false;
+
+  renderer.setOrientation(cfgOrient);
+  Bitmap bitmap(bmpFile, true);
+  if (bitmap.parseHeaders() != BmpReaderError::Ok) {
+    LOG_ERR("TDST", "Snapshot BMP header parse failed");
+    bmpFile.close();
+    return false;
+  }
+  renderBitmapSleepScreen(bitmap);
+  bmpFile.close();
+  return true;
 }
