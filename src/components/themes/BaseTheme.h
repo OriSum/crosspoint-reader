@@ -146,8 +146,11 @@ enum UIIcon {
   Hotspot,
   Bookmark,
   Usb,
-  Blocks
+  Blocks,
+  Checklist
 };
+
+enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 
 // Default theme implementation (Classic Theme)
 // Additional themes can inherit from this and override methods as needed
