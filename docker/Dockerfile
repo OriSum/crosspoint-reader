@@ -1,10 +1,13 @@
 # CrossPoint Reader local build environment.
 #
-# Mirrors the CI toolchain (.github/workflows/ci.yml):
+# Mirrors the release-candidate build job (.github/workflows/release_candidate.yml):
 #   - Python 3.13
 #   - pioarduino PlatformIO Core 6.1.19 (pinned, both outer and nested penv)
-#   - clang-format 21 (pip wheel; bin/clang-format-fix picks it up from PATH)
-#   - libpcre3 (pioarduino's Linux cppcheck binary links against it)
+#   - the platform dependencies the workflow installs explicitly
+#   - build command: CROSSPOINT_RC_HASH=<short sha> pio run -e x4pro-gh_release_rc -j1
+#
+# Unlike ci.yml, this workflow runs no clang-format or cppcheck steps, so the
+# image ships neither clang-format nor libpcre3.
 #
 # The image contains only tooling. Source code is bind-mounted at /work, so
 # builds read/write the host checkout directly (generated i18n files, .pio,
@@ -18,30 +21,23 @@
 
 FROM python:3.13-slim
 
-# System packages: git (scripts/git_branch.py, version flags), ca-certificates
-# (TLS for package downloads). libpcre3 (PCRE1) was removed from Debian
-# trixie, but pioarduino's Linux cppcheck binary links against libpcre.so.3
-# (see the CI step "Install cppcheck runtime dependency"); fetch the last
-# bookworm build directly.
+# System packages: git (scripts/git_branch.py, the CROSSPOINT_RC_HASH short
+# SHA, version flags) and ca-certificates (TLS for package downloads).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates curl \
-  && curl -fsSL -o /tmp/libpcre3.deb http://deb.debian.org/debian/pool/main/p/pcre3/libpcre3_8.39-15_amd64.deb \
-  && apt-get install -y --no-install-recommends /tmp/libpcre3.deb \
-  && rm -f /tmp/libpcre3.deb \
+  && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# PlatformIO Core, pinned to the same revision as CI, plus the platform
-# dependencies CI installs explicitly (platform-espressif32's builder/main.py
-# imports them unconditionally; the platform's own penv bootstrap is not
-# reliable). clang-format comes from its pip wheel so the version is pinned
-# with the rest of the toolchain.
+# PlatformIO Core, pinned to the same revision as the workflow, plus the
+# platform dependencies it installs explicitly (platform-espressif32's
+# builder/main.py imports them unconditionally; the platform's own penv
+# bootstrap is not reliable).
 RUN pip install --no-cache-dir \
   "https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip" \
   "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
   "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" \
   "urllib3<2" "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" \
   "bitstring>=4.3.1" "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" \
-  "esp-coredump>=1.14.0" "clang-format>=21,<22"
+  "esp-coredump>=1.14.0"
 
 # Python packages used by the build pre/post scripts (icon conversion, HTML
 # build, etc.).
@@ -61,8 +57,11 @@ USER dev
 WORKDIR /work
 
 ENV PLATFORMIO_CORE_DIR=/home/dev/.platformio
-ENV PIO_ENV=default
+# The release-candidate matrix entry this image reproduces.
+ENV PIO_ENV=x4pro-gh_release_rc
 
 COPY docker/entrypoint.sh /usr/local/bin/crosspoint-entrypoint.sh
 ENTRYPOINT ["crosspoint-entrypoint.sh"]
-CMD ["pio", "run"]
+# Same build command as the workflow's "Build CrossPoint Release Candidate"
+# step, with the RC version suffix taken from the mounted checkout's HEAD.
+CMD CROSSPOINT_RC_HASH="$(git rev-parse --short=7 HEAD)" pio run -e "$PIO_ENV" -j1
