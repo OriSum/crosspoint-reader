@@ -4,6 +4,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+#include <atomic>
 #include <cassert>
 #include <memory>
 #include <string>
@@ -15,6 +16,8 @@
 
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
+
+enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
 
 /**
  * ActivityManager
@@ -61,7 +64,7 @@ class ActivityManager {
 
   // Whether to trigger a render after the current loop()
   // This variable must only be set by the main loop, to avoid race conditions
-  bool requestedUpdate = false;
+  std::atomic<bool> requestedUpdate{false};
 
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -79,16 +82,19 @@ class ActivityManager {
 
   // goTo... functions are convenient wrapper for replaceActivity()
   void goToFileTransfer();
+  void goToJoinNetwork();  // File Transfer straight into Join Network (post heap-defrag reboot)
+  void goToUsbDrive();
   void goToSettings();
   void goToFileBrowser(std::string path = {});
-  void goToRecentBooks();
+  void goToLibrary();
   void goToBrowser();
-  void goToReader(std::string path);
-  void goToSleep();
+  void goToPlugins(bool showOpds);
+  void goToReader(std::string path, bool allowFastInitialRefresh = false);
+  void goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
-  void goHome();
+  void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE, bool cleanInitialRefresh = false);
 
   // This will move current activity to stack instead of deleting it
   void pushActivity(std::unique_ptr<Activity>&& activity);
@@ -98,9 +104,12 @@ class ActivityManager {
   void popActivity();
 
   bool preventAutoSleep() const;
+  bool requiresExclusiveStorageLoop() const;
   bool isReaderActivity() const;
+  bool handleForcedRefresh();
   bool skipLoopDelay() const;
   ScreenshotInfo getScreenshotInfo() const;
+  void prepareForSleep();
 
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.
