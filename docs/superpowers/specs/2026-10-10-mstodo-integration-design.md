@@ -29,7 +29,7 @@ The integration reuses the Todoist integration's architecture end to end (config
 
 - Mark-complete, add, edit, or delete tasks (read-only only).
 - Task creation, steps, notes, categories, reminders.
-- Multiple list selection (v1 always uses the default task list; `wellknownListName == "default"`).
+- Multiple list selection (v1 always uses the default task list; `wellknownListName == "defaultList"`).
 - Multiple Microsoft accounts.
 - Filters other than the fixed "today + overdue" query.
 - Weather, geolocation, timezone, date-format, or layout-mode settings.
@@ -236,7 +236,7 @@ User selects "MS To Do" on home screen
     → MsTodoClient::fetchToday(accessToken, &tasks)
         - GET https://graph.microsoft.com/v1.0/me/todo/lists  → resolve default list id
         - GET https://graph.microsoft.com/v1.0/me/todo/lists/<id>/tasks
-              ?$filter=status ne 'completed'
+              ?$filter=status%20ne%20%27completed%27   [percent-encoded; raw spaces/quotes are rejected by http_parser]
               &$select=title,dueDateTime,status,importance
               &$top=64
         - Streamed deserializeJson into reserved std::vector<MsTodoTask> (cap 64)

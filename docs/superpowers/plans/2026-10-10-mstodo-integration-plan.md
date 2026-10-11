@@ -132,8 +132,8 @@ docs/mstodo-integration.md                      Phase 7
   };
   ```
 - [ ] 3.2 Create `src/integrations/mstodo/MsTodoClient.cpp` by adapting `TodoistClient.cpp`:
-  - Request 1 (skipped when `outListId` is already non-empty): `GET /v1.0/me/todo/lists?$select=id,wellknownListName` → find `wellknownListName == "default"`, store its `id`.
-  - Request 2: `GET /v1.0/me/todo/lists/<id>/tasks?$filter=status ne 'completed'&$select=title,dueDateTime,status,importance&$top=64` (URL-encode the `$` params).
+  - Request 1 (skipped when `outListId` is already non-empty): `GET /v1.0/me/todo/lists?$select=id,wellknownListName` → find `wellknownListName == "defaultList"`, store its `id`.
+  - Request 2: `GET /v1.0/me/todo/lists/<id>/tasks?$filter=status ne 'completed'&$select=title,dueDateTime,status,importance&$top=64` (percent-encode the `$filter` value — it contains spaces and quotes that `http_parser` rejects in a raw URL).
   - Response buffer: **24 KB** cap (Graph JSON is ~1.5× Todoist's even with `$select`; see spec §7.3). Same lazy allocation, same truncation tolerance.
   - Parse: `value` array; per task copy `title` → `copyTitle`, `importance` → priority mapping (`high`→4, `normal`→2, `low`→1), `dueDateTime.dateTime` (ISO 8601 with offset, e.g. `2026-10-10T09:30:00.0000000+02:00`) → extract `YYYY-MM-DD` prefix and `HH:MM` after `T` (reuse the `extractDueTime` logic; the offset suffix is ignored — the device clock is UTC-pinned in the activity, matching Todoist's approach).
   - Overdue computation: same `sscanf("%4d-%2d-%2d")` + `localtime_r` comparison as `TodoistClient::isOverdue`.

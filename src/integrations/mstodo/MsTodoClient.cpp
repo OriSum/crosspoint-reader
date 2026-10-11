@@ -225,7 +225,9 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
     JsonArray lists = doc["value"].as<JsonArray>();
     for (JsonObject list : lists) {
       const char* wellknown = list["wellknownListName"] | static_cast<const char*>(nullptr);
-      if (wellknown && strcmp(wellknown, "default") == 0) {
+      // Graph's wellknownListName enum value for the built-in Tasks list is
+      // "defaultList" (not "default").
+      if (wellknown && strcmp(wellknown, "defaultList") == 0) {
         const char* id = list["id"] | static_cast<const char*>(nullptr);
         if (id && id[0] != '\0') {
           outListId = id;
@@ -240,9 +242,11 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
     }
   }
 
-  // Step 2: fetch tasks from the resolved list.
-  std::string url = std::string(kGraphBase) + "/me/todo/lists/" + outListId +
-                    "/tasks?$filter=status ne 'completed'&$select=title,dueDateTime,status,importance&$top=64";
+  // Step 2: fetch tasks from the resolved list. The $filter value contains
+  // spaces and quotes, which http_parser rejects in a raw URL, so it must be
+  // percent-encoded; the $select/$top values are already URL-safe.
+  std::string url = std::string(kGraphBase) + "/me/todo/lists/" + outListId + "/tasks?$filter=" +
+                    urlEncode("status ne 'completed'") + "&$select=title,dueDateTime,status,importance&$top=64";
   std::string response;
   const int code = getWithToken(url.c_str(), accessToken, response);
   if (code < 0) return FetchResult::NetworkError;
