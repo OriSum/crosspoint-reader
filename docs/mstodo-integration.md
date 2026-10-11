@@ -89,7 +89,6 @@ ID override.
 | `access_token` | string | (managed) | Set by the device after sign-in. Don't edit. |
 | `refresh_token` | string | (managed) | Set by the device. Don't edit. |
 | `token_expiry_epoch` | number | (managed) | Unix time when the access token expires. Don't edit. |
-| `list_id` | string | (managed) | Resolved ID of your default To Do list. Don't edit. |
 | `sleep_screen_enabled` | bool | `false` | When `true` and a snapshot exists, the sleep screen renders the cached task list instead of the default rotation. |
 
 The file is bounded at 4 KB — parsing aborts and the integration disables
@@ -138,13 +137,14 @@ pio run -e gh_release -t upload
 
 1. From the home screen menu, open **MS To Do**.
 2. The activity validates its session (refreshing the token if needed),
-   brings up WiFi, syncs NTP, and fetches your tasks. Expect 3–10 seconds
-   before the list appears — a little longer than Todoist because the
-   device may also refresh its token.
+   brings up WiFi, syncs NTP, and fetches your tasks. Expect a few seconds
+   for a small account; a large account (many lists) takes longer, because
+   the Planned view walks every list over one connection.
 3. Press **Confirm** to refresh, **Up/Down** to scroll, **Back** to exit.
 
-The list shows tasks due today plus overdue ones from your default To Do
-list. Completed tasks are never shown.
+The list shows the Microsoft To Do **Planned** view: every task with a due
+date in the overdue + today + next seven days window, across **all** of your
+To Do lists. Completed tasks and tasks with no due date are never shown.
 
 After a successful fetch with `sleep_screen_enabled: true`, the device
 also writes:
@@ -182,7 +182,7 @@ the other to show.
 A single fixed view: an "MS To Do" header with an `Updated HH:MM` stamp
 from the last successful fetch, and the task list below it. The query
 fetches overdue tasks, tasks due today, and tasks due within the next
-seven days from the default list — so there are no filter, timezone, or
+seven days from **every** list — so there are no filter, timezone, or
 layout settings to manage. Each row shows a marker glyph (bullet for
 today, `!` for overdue, `›` for future-dated), the task title, and a
 dd/mm date suffix when the task carries a due date.
@@ -194,11 +194,33 @@ dd/mm date suffix when the task carries a due date.
 This section records a Microsoft Graph quirk that shaped the client, so a
 future change does not reintroduce it.
 
-The client makes two requests:
+**Planned is a smart view, not a list.** Microsoft To Do's Planned view
+aggregates every task that has a due date across all of the user's lists.
+Graph exposes no aggregate endpoint for it (`GET /me/todo/tasks` returns
+HTTP 400 on both v1.0 and beta), so the client walks each list:
 
-1. `GET /me/todo/lists` — find the list whose `wellknownListName` is
-   `defaultList` and remember its `id`.
-2. `GET /me/todo/lists/<id>/tasks?$filter=...` — fetch the tasks.
+1. `GET /me/todo/lists` — collect every list `id`, following
+   `@odata.nextLink` if the list itself is paginated.
+2. `GET /me/todo/lists/<id>/tasks?$filter=...&$top=8` — fetch the tasks for
+   one list, following `@odata.nextLink` until that list is exhausted.
+
+All requests share one `esp_http_client` handle with keep-alive enabled, so
+the TLS handshake is paid once per fetch rather than once per list. The
+response buffer is allocated once and reused across requests.
+
+**Why `$top=8` and pagination.** Graph task JSON is verbose (~1.7 KB per
+task: `recurrence`, `id`, `@odata.etag`, and timestamps), and `$select`
+cannot trim it (see below). A single list can therefore exceed the 24 KB
+response buffer. Pages of 8 tasks stay around 14–18 KB, and `@odata.nextLink`
+walks the rest. `$batch` (one request for all lists) was tried and rejected:
+Graph throttles the parallel sub-requests with HTTP 429.
+
+**Bounds and resilience.** The walk is bounded so a large account cannot
+stall the device: at most 32 lists, at most 4 pages per list (32 tasks per
+list), and 64 tasks overall. A list that fails (deleted, transient 5xx/429,
+or a page too large for the buffer) is skipped and the tasks already
+collected from other lists are kept; only an authentication failure aborts
+the whole fetch.
 
 **`$select` is not used, on purpose.** Microsoft Graph's `$select`
 parameter is documented as a way to trim the response, and the To Do
@@ -236,10 +258,10 @@ $filter=status ne 'completed'
 - `le '<today + 7 days>'` bounds the window to overdue + today + the next
   seven days. The upper bound is computed on-device from the local clock.
 
-This keeps the response small (a few KB for a typical account) without
-`$select`, and — unlike the previous `$top=64` — it does not hide overdue
-tasks that sit deep in a long list. The today/overdue split is still
-computed on-device from each task's `dueDateTime`.
+This keeps each response small without `$select`, and — unlike a plain
+`$top=64` — it does not hide overdue tasks that sit deep in a long list. The
+today/overdue split is still computed on-device from each task's
+`dueDateTime`.
 
 ---
 
@@ -303,12 +325,6 @@ home-screen cover buffer before connecting.
 ### "Rate limited - try later"
 
 Microsoft Graph answered 429. Wait a few minutes and press **Retry**.
-
-### Tasks from a deleted list
-
-If you deleted your default To Do list in the Microsoft To Do app, the
-next fetch re-resolves it automatically. If the error persists, sign out
-and sign in again.
 
 ### Sleep screen doesn't show my tasks
 

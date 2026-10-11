@@ -6,9 +6,12 @@
 #include <esp_heap_caps.h>
 #include <esp_http_client.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+
+#include "util/TaskWatchdog.h"
 
 namespace mstodo {
 
@@ -20,14 +23,28 @@ constexpr int kHttpTimeoutMs = 15000;
 // of heap on top of these — every KB we free here is one mbedTLS can take.
 constexpr size_t kHttpBufSize = 2048;
 constexpr size_t kMaxTasks = 64;
+// Upper bound on lists walked per fetch. A user with more lists than this
+// loses the tail of the Planned view rather than the whole fetch.
+constexpr size_t kMaxLists = 32;
+// Safety cap on pages of the /me/todo/lists response. A user with more lists
+// than one page still gets the first kMaxLists; the cap bounds the walk.
+constexpr int kMaxListPages = 4;
 // Tasks window: overdue + today + next N days. The activity
 // still computes the today/overdue split on-device.
 constexpr int kTaskWindowDays = 7;
-// Graph task JSON is verbose (~250-350 bytes/task) and $select cannot trim it
-// (see fetchToday). The date $filter keeps the window small in practice, but a
-// user with many tasks due in the next week can still produce a large body.
+// Graph task JSON is verbose (~1.7 KB/task: recurrence, id, etag, timestamps)
+// and $select cannot trim it (see docs/mstodo-integration.md). A page must
+// therefore stay well under kMaxResponseBytes; 8 tasks is ~14-18 KB, which
+// leaves headroom for the largest list observed. Pages are followed via
+// @odata.nextLink until the list is exhausted.
+constexpr int kTasksPageSize = 8;
+// Safety cap on pages per list. Deliberately smaller than kMaxTasks /
+// kTasksPageSize so one very busy list cannot consume the whole task budget
+// and starve every other list: a single list contributes at most 32 tasks.
+constexpr int kMaxPagesPerList = 4;
 // 24 KB cap trades a higher steady-state footprint for predictability (same
-// rationale as Todoist's 16 KB cap). Truncation is handled gracefully.
+// rationale as Todoist's 16 KB cap). A page that still overflows is skipped
+// rather than aborting the whole fetch.
 constexpr size_t kMaxResponseBytes = 24 * 1024;
 
 struct ResponseBuffer {
@@ -153,159 +170,99 @@ void copyTitle(char* dst, size_t dstCap, const char* src) {
 FetchResult httpStatusToFetchResult(int code) {
   if (code == 200) return FetchResult::Ok;
   if (code == 401 || code == 403) return FetchResult::InvalidToken;
-  if (code == 404) return FetchResult::ListGone;
   if (code == 429) return FetchResult::RateLimited;
   if (code >= 500) return FetchResult::ServerError;
   return FetchResult::NetworkError;
 }
 
-// GET request with Bearer token. On success copies the response body into
-// `outBody` and returns the HTTP status code; returns -1 on a transport or
-// allocation failure. The response buffer is freed before returning.
-int getWithToken(const char* url, const std::string& accessToken, std::string& outBody) {
-  outBody.clear();
+// One HTTPS session against Graph, reused across every request in a fetch.
+// The TLS handshake is the dominant cost on the C3, so the connection is kept
+// alive (config.keep_alive_enable) and the response buffer is allocated once
+// and reused. All requests target graph.microsoft.com, so keep-alive applies.
+class GraphSession {
+ public:
+  GraphSession() = default;
+  ~GraphSession() {
+    if (client) esp_http_client_cleanup(client);
+    free(buf.data);
+  }
+  GraphSession(const GraphSession&) = delete;
+  GraphSession& operator=(const GraphSession&) = delete;
+
+  // Opens the session and sets the auth header. Returns false on init failure.
+  bool begin(const std::string& accessToken) {
+    buf.capacity = kMaxResponseBytes;
+
+    esp_http_client_config_t config = {};
+    config.url = kGraphBase;  // placeholder; set_url before each request
+    config.event_handler = httpEventHandler;
+    config.user_data = &buf;
+    config.method = HTTP_METHOD_GET;
+    config.timeout_ms = kHttpTimeoutMs;
+    config.buffer_size = kHttpBufSize;
+    config.buffer_size_tx = kHttpBufSize;
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+    config.keep_alive_enable = true;
+
+    client = esp_http_client_init(&config);
+    if (!client) {
+      LOG_ERR("MSTD", "esp_http_client_init failed");
+      return false;
+    }
+
+    std::string authHeader = "Bearer " + accessToken;
+    if (esp_http_client_set_header(client, "Authorization", authHeader.c_str()) != ESP_OK ||
+        esp_http_client_set_header(client, "Accept", "application/json") != ESP_OK) {
+      LOG_ERR("MSTD", "Set header failed");
+      return false;
+    }
+    return true;
+  }
+
+  // GET `url`. On success copies the body into `outBody` and returns the HTTP
+  // status code; returns -1 on a transport or allocation failure.
+  int get(const std::string& url, std::string& outBody) {
+    outBody.clear();
+    if (!client) return -1;
+
+    // Reset the shared buffer for this response; keep the allocation.
+    buf.size = 0;
+    buf.truncated = false;
+
+    if (esp_http_client_set_url(client, url.c_str()) != ESP_OK) {
+      LOG_ERR("MSTD", "set_url failed");
+      return -1;
+    }
+
+    // The fetch issues many sequential blocking requests on the loop task;
+    // feed the task watchdog so a slow request cannot trip it.
+    resetTaskWatchdogIfSubscribed();
+    esp_err_t err = esp_http_client_perform(client);
+    resetTaskWatchdogIfSubscribed();
+    const int httpCode = esp_http_client_get_status_code(client);
+
+    LOG_DBG("MSTD", "HTTP %d (err=%d, %u bytes%s)", httpCode, err, static_cast<unsigned>(buf.size),
+            buf.truncated ? " [truncated]" : "");
+
+    if (err != ESP_OK || buf.allocFailed) return -1;
+    if (buf.truncated) {
+      LOG_ERR("MSTD", "Response truncated at cap (%u bytes)", static_cast<unsigned>(buf.capacity));
+    }
+    if (buf.data) outBody.assign(buf.data, buf.size);
+    return httpCode;
+  }
+
+  // True when the last get() response hit the buffer cap. The body is then
+  // incomplete and must not be parsed.
+  bool truncated() const { return buf.truncated; }
+
+ private:
+  esp_http_client_handle_t client = nullptr;
   ResponseBuffer buf;
-  buf.capacity = kMaxResponseBytes;
+};
 
-  esp_http_client_config_t config = {};
-  config.url = url;
-  config.event_handler = httpEventHandler;
-  config.user_data = &buf;
-  config.method = HTTP_METHOD_GET;
-  config.timeout_ms = kHttpTimeoutMs;
-  config.buffer_size = kHttpBufSize;
-  config.buffer_size_tx = kHttpBufSize;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (!client) {
-    LOG_ERR("MSTD", "esp_http_client_init failed");
-    free(buf.data);
-    return -1;
-  }
-
-  std::string authHeader = "Bearer " + accessToken;
-  if (esp_http_client_set_header(client, "Authorization", authHeader.c_str()) != ESP_OK ||
-      esp_http_client_set_header(client, "Accept", "application/json") != ESP_OK) {
-    LOG_ERR("MSTD", "Set header failed");
-    esp_http_client_cleanup(client);
-    return -1;
-  }
-
-  esp_err_t err = esp_http_client_perform(client);
-  const int httpCode = esp_http_client_get_status_code(client);
-  esp_http_client_cleanup(client);
-
-  LOG_DBG("MSTD", "HTTP %d (err=%d, %u bytes%s)", httpCode, err, static_cast<unsigned>(buf.size),
-          buf.truncated ? " [truncated]" : "");
-
-  if (err != ESP_OK || buf.allocFailed) {
-    free(buf.data);
-    return -1;
-  }
-  if (buf.truncated) {
-    LOG_ERR("MSTD", "Response truncated at cap (%u bytes)", static_cast<unsigned>(buf.capacity));
-  }
-  if (buf.data) {
-    outBody.assign(buf.data, buf.size);
-  }
-  free(buf.data);
-  return httpCode;
-}
-
-}  // namespace
-
-FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string& outListId,
-                                     std::vector<MsTodoTask>& outTasks) {
-  outTasks.clear();
-  outTasks.reserve(kMaxTasks);
-
-  if (accessToken.empty()) {
-    LOG_ERR("MSTD", "Empty token");
-    return FetchResult::InvalidToken;
-  }
-
-  // Step 1: resolve the default list id if we don't have it cached.
-  // No $select here: Microsoft Graph rejects $select on the To Do endpoints
-  // for personal (MSA) accounts with HTTP 400 RequestBroker--ParseUri, and
-  // silently ignores it for the few field names it does accept. See
-  // docs/mstodo-integration.md ("Why the requests look the way they do").
-  if (outListId.empty()) {
-    std::string url = std::string(kGraphBase) + "/me/todo/lists";
-    std::string response;
-    const int code = getWithToken(url.c_str(), accessToken, response);
-    if (code < 0) return FetchResult::NetworkError;
-    if (code != 200) {
-      LOG_ERR("MSTD", "List resolution HTTP %d", code);
-      return httpStatusToFetchResult(code);
-    }
-
-    JsonDocument doc;
-    auto parseErr = deserializeJson(doc, response);
-    if (parseErr) {
-      LOG_ERR("MSTD", "List JSON parse: %s", parseErr.c_str());
-      return FetchResult::ParseError;
-    }
-
-    JsonArray lists = doc["value"].as<JsonArray>();
-    for (JsonObject list : lists) {
-      const char* wellknown = list["wellknownListName"] | static_cast<const char*>(nullptr);
-      // Graph's wellknownListName enum value for the built-in Tasks list is
-      // "defaultList" (not "default").
-      if (wellknown && strcmp(wellknown, "defaultList") == 0) {
-        const char* id = list["id"] | static_cast<const char*>(nullptr);
-        if (id && id[0] != '\0') {
-          outListId = id;
-          LOG_DBG("MSTD", "Resolved default list id: %s", id);
-          break;
-        }
-      }
-    }
-    if (outListId.empty()) {
-      LOG_ERR("MSTD", "Default list not found");
-      return FetchResult::ListGone;
-    }
-  }
-
-  // Step 2: fetch tasks from the resolved list. The $filter value contains
-  // spaces and quotes, which http_parser rejects in a raw URL, so it must be
-  // percent-encoded.
-  //
-  // The date bounds replace the old $select/$top approach. $select is unusable
-  // on To Do (see Step 1), and $top alone returned the first N tasks in list
-  // order, which hid overdue tasks sitting deeper in a long list. Filtering on
-  // dueDateTime server-side keeps the response small and complete:
-  //   - ge '1970-01-01' excludes undated tasks (a null comparison is rejected).
-  //   - le <today+7> bounds the window to overdue + today + the next 7 days.
-  // The activity still computes the today/overdue split on-device.
-  char upperBound[11];
-  formatDatePlusDays(kTaskWindowDays, upperBound, sizeof(upperBound));
-  std::string filter = "status ne 'completed' and dueDateTime/dateTime ge '1970-01-01' and dueDateTime/dateTime le '";
-  filter += upperBound;
-  filter += "'";
-  std::string url =
-      std::string(kGraphBase) + "/me/todo/lists/" + outListId + "/tasks?$filter=" + urlEncode(filter) + "&$top=64";
-  std::string response;
-  const int code = getWithToken(url.c_str(), accessToken, response);
-  if (code < 0) return FetchResult::NetworkError;
-  if (code == 404) {
-    // Stored list id is stale (user deleted the list). Caller will clear it
-    // and retry once.
-    return FetchResult::ListGone;
-  }
-  if (code != 200) {
-    LOG_ERR("MSTD", "Tasks HTTP %d", code);
-    return httpStatusToFetchResult(code);
-  }
-
-  JsonDocument doc;
-  auto parseErr = deserializeJson(doc, response);
-  if (parseErr) {
-    LOG_ERR("MSTD", "Tasks JSON parse: %s", parseErr.c_str());
-    return FetchResult::ParseError;
-  }
-
-  JsonArray arr = doc["value"].as<JsonArray>();
+// Appends the tasks in a Graph "value" array to outTasks, up to kMaxTasks.
+void parseTasks(JsonArray arr, std::vector<MsTodoTask>& outTasks) {
   for (JsonObject task : arr) {
     if (outTasks.size() >= kMaxTasks) break;
     MsTodoTask t = {};
@@ -343,6 +300,141 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
 
     outTasks.push_back(t);
   }
+}
+
+// Collects list ids from a /me/todo/lists "value" array, up to kMaxLists.
+void parseListIds(JsonArray arr, std::vector<std::string>& outIds) {
+  for (JsonObject list : arr) {
+    if (outIds.size() >= kMaxLists) break;
+    const char* id = list["id"] | static_cast<const char*>(nullptr);
+    if (id && id[0] != '\0') outIds.emplace_back(id);
+  }
+}
+
+}  // namespace
+
+FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, std::vector<MsTodoTask>& outTasks) {
+  outTasks.clear();
+  outTasks.reserve(kMaxTasks);
+
+  if (accessToken.empty()) {
+    LOG_ERR("MSTD", "Empty token");
+    return FetchResult::InvalidToken;
+  }
+
+  GraphSession session;
+  if (!session.begin(accessToken)) return FetchResult::NetworkError;
+
+  // Step 1: collect every list id. Microsoft To Do's Planned view spans all
+  // lists, and Graph has no aggregate endpoint for it, so we walk each list.
+  // No $select here: Microsoft Graph rejects $select on the To Do endpoints
+  // for personal (MSA) accounts with HTTP 400 RequestBroker--ParseUri, and
+  // silently ignores it for the few field names it does accept. See
+  // docs/mstodo-integration.md ("Why the requests look the way they do").
+  std::vector<std::string> listIds;
+  listIds.reserve(kMaxLists);
+  {
+    std::string url = std::string(kGraphBase) + "/me/todo/lists";
+    for (int page = 0; page < kMaxListPages && !url.empty(); ++page) {
+      std::string response;
+      const int code = session.get(url, response);
+      if (code < 0) return FetchResult::NetworkError;
+      if (code != 200) {
+        LOG_ERR("MSTD", "List resolution HTTP %d", code);
+        return httpStatusToFetchResult(code);
+      }
+      if (session.truncated()) {
+        LOG_ERR("MSTD", "Lists response truncated; stopping list walk");
+        break;
+      }
+
+      JsonDocument doc;
+      auto parseErr = deserializeJson(doc, response);
+      if (parseErr) {
+        LOG_ERR("MSTD", "List JSON parse: %s", parseErr.c_str());
+        return FetchResult::ParseError;
+      }
+      parseListIds(doc["value"].as<JsonArray>(), listIds);
+
+      const char* next = doc["@odata.nextLink"] | static_cast<const char*>(nullptr);
+      url = next ? next : "";
+      if (listIds.size() >= kMaxLists) break;
+    }
+  }
+  if (listIds.empty()) {
+    LOG_ERR("MSTD", "No lists found");
+    return FetchResult::ParseError;
+  }
+
+  // Step 2: fetch tasks from every list. The $filter value contains spaces and
+  // quotes, which http_parser rejects in a raw URL, so it must be
+  // percent-encoded.
+  //
+  // The date bounds replace the old $select/$top approach. $select is unusable
+  // on To Do (see Step 1), and $top alone returned the first N tasks in list
+  // order, which hid overdue tasks sitting deeper in a long list. Filtering on
+  // dueDateTime server-side keeps each response small and complete:
+  //   - ge '1970-01-01' excludes undated tasks (a null comparison is rejected).
+  //   - le <today+7> bounds the window to overdue + today + the next 7 days.
+  // The activity still computes the today/overdue split on-device.
+  char upperBound[11];
+  formatDatePlusDays(kTaskWindowDays, upperBound, sizeof(upperBound));
+  std::string filter = "status ne 'completed' and dueDateTime/dateTime ge '1970-01-01' and dueDateTime/dateTime le '";
+  filter += upperBound;
+  filter += "'";
+  const std::string filterEnc = urlEncode(filter);
+
+  char pageSize[8];
+  snprintf(pageSize, sizeof(pageSize), "%d", kTasksPageSize);
+
+  // Track whether any list answered, so an all-lists failure surfaces as an
+  // error instead of an empty "no tasks" view.
+  bool anyListSucceeded = false;
+  FetchResult lastError = FetchResult::Ok;
+
+  for (const auto& listId : listIds) {
+    if (outTasks.size() >= kMaxTasks) break;
+
+    std::string url =
+        std::string(kGraphBase) + "/me/todo/lists/" + listId + "/tasks?$filter=" + filterEnc + "&$top=" + pageSize;
+    for (int page = 0; page < kMaxPagesPerList && !url.empty(); ++page) {
+      std::string response;
+      const int code = session.get(url, response);
+      if (code < 0) return FetchResult::NetworkError;
+      // A per-list failure (deleted list, transient 5xx/429) skips that list
+      // and keeps the tasks already collected from the others. Only an auth
+      // failure aborts the whole fetch.
+      if (code == 401 || code == 403) return FetchResult::InvalidToken;
+      if (code != 200) {
+        LOG_ERR("MSTD", "Tasks HTTP %d for list; skipping", code);
+        lastError = httpStatusToFetchResult(code);
+        break;
+      }
+      anyListSucceeded = true;
+      if (session.truncated()) {
+        LOG_ERR("MSTD", "Tasks page truncated; skipping rest of list");
+        break;
+      }
+
+      JsonDocument doc;
+      auto parseErr = deserializeJson(doc, response);
+      if (parseErr) {
+        LOG_ERR("MSTD", "Tasks JSON parse: %s; skipping list", parseErr.c_str());
+        break;
+      }
+
+      parseTasks(doc["value"].as<JsonArray>(), outTasks);
+
+      const char* next = doc["@odata.nextLink"] | static_cast<const char*>(nullptr);
+      url = next ? next : "";
+      if (outTasks.size() >= kMaxTasks) break;
+    }
+  }
+
+  if (!anyListSucceeded && lastError != FetchResult::Ok) {
+    LOG_ERR("MSTD", "All lists failed");
+    return lastError;
+  }
 
   // Sort: overdue first (by date asc), then today/undated (by date asc), then future.
   // Same comparator as TodoistClient.
@@ -357,7 +449,8 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
     return false;                            // both undated: stable
   });
 
-  LOG_DBG("MSTD", "Parsed %u tasks", static_cast<unsigned>(outTasks.size()));
+  LOG_DBG("MSTD", "Parsed %u tasks from %u lists", static_cast<unsigned>(outTasks.size()),
+          static_cast<unsigned>(listIds.size()));
   return FetchResult::Ok;
 }
 

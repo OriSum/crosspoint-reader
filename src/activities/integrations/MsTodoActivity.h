@@ -35,7 +35,7 @@ class MsTodoActivity : public Activity {
   // and re-enters proceedWithFetch() on its result.
   void startFetch();
 
-  // Step 2 of fetch: time sync + token refresh + MsTodoClient::fetchToday.
+  // Step 2 of fetch: time sync + token refresh + MsTodoClient::fetchPlanned.
   // Called once WiFi is up.
   void proceedWithFetch();
 

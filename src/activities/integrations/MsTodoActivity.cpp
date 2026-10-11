@@ -313,21 +313,9 @@ void MsTodoActivity::proceedWithFetch() {
     MSTODO_CONFIG.setTokens(access, refresh, expiry);
   }
 
-  std::string listId = MSTODO_CONFIG.getListId();
-  FetchResult r = mstodo::MsTodoClient::fetchToday(MSTODO_CONFIG.getAccessToken(), listId, _tasks);
-
-  // Stale cached list id: clear it and retry once (re-resolves the default).
-  if (r == FetchResult::ListGone && !MSTODO_CONFIG.getListId().empty()) {
-    LOG_DBG("MSTD", "Stored list id gone; re-resolving");
-    MSTODO_CONFIG.setListId("");
-    listId.clear();
-    r = mstodo::MsTodoClient::fetchToday(MSTODO_CONFIG.getAccessToken(), listId, _tasks);
-  }
+  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), _tasks);
 
   if (r == FetchResult::Ok) {
-    if (!listId.empty() && listId != MSTODO_CONFIG.getListId()) {
-      MSTODO_CONFIG.setListId(listId);
-    }
     time_t now = time(nullptr);
     struct tm tm_now;
     localtime_r(&now, &tm_now);
@@ -632,7 +620,6 @@ StrId MsTodoActivity::fetchResultToStrId(mstodo::FetchResult r) const {
     case mstodo::FetchResult::ServerError:
     case mstodo::FetchResult::NetworkError:
     case mstodo::FetchResult::ParseError:
-    case mstodo::FetchResult::ListGone:
     default:
       return StrId::STR_MSTODO_FETCH_FAILED;
   }
