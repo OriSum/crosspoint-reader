@@ -554,6 +554,8 @@ STR_TODOIST_FORGET: "Forget Todoist"
 STR_TODOIST_TODAY_HEADER: "Updated %02d:%02d"
 STR_TODOIST_INVALID_TOKEN: "Invalid token"
 STR_TODOIST_RATE_LIMITED: "Rate limited - try later"
+STR_MSTODO: "MS To Do"
+STR_MSTODO_NO_TOKEN: "Not signed in"
 
 STR_HOME_SHORTCUT: "Home"
 STR_HOME_BUTTON: "Home Button Gestures"
