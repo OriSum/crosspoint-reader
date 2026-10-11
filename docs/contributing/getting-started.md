@@ -40,6 +40,20 @@ clang-format-21 --version
 
 The reported major version must be 21 or newer.
 
+### No local clang-format? Use the Docker image
+
+The [Docker build environment](../../docker/README.md) ships clang-format 21,
+so you can format without installing anything on the host. Build the image
+once, then run the formatter against the mounted checkout:
+
+```sh
+docker build -t crosspoint-build -f docker/Dockerfile .
+docker run --rm -v "$PWD":/work crosspoint-build ./bin/clang-format-fix -g
+```
+
+`-g` formats only the C/C++ files currently modified in `git status`. Drop it
+to format the whole tree. The command rewrites files in place in your checkout.
+
 ## Clone and initialize
 
 ```sh
