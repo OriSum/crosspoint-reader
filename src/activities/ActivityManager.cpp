@@ -20,6 +20,7 @@
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
+#include "integrations/MsTodoActivity.h"
 #include "integrations/TodoistActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
@@ -298,6 +299,7 @@ void ActivityManager::goToBrowser() {
 }
 
 void ActivityManager::goToTodoist() { replaceActivity(std::make_unique<TodoistActivity>(renderer, mappedInput)); }
+void ActivityManager::goToMsTodo() { replaceActivity(std::make_unique<MsTodoActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToPlugins(bool showOpds) {
   replaceActivity(std::make_unique<PluginCatalogActivity>(renderer, mappedInput, showOpds, /*rootMode=*/true));
@@ -351,6 +353,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     } else if (activityName == "Todoist") {
       initialMenuItem = HomeMenuItem::TODOIST;
+    } else if (activityName == "MsTodo") {
+      initialMenuItem = HomeMenuItem::MSTODO;
     }
   }
   replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh));
