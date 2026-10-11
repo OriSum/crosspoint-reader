@@ -217,6 +217,14 @@ docs/mstodo-integration.md                      Phase 7
 
 ---
 
+## Future work (v2 candidates)
+
+The following ideas are traced here for future consideration. They are not part of any active phase.
+
+- **Pagination of Graph API results.** The current `$top=64` cap (and the 24 KB response buffer) means the client truncates large task lists silently. A pagination loop using `@odata.nextLink` would fetch all matching tasks across multiple requests, accumulating them into the vector until the full result set is retrieved or a configurable cap is reached. This is especially valuable for users with many tasks due within the window. The response buffer pattern (lazy allocation, truncation tolerance) stays the same; only the fetch loop changes.
+- **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
+- **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.
+
 ## Phase-end verification (every phase)
 
 - `pio run -t clean && pio run` — 0 errors, 0 new warnings.

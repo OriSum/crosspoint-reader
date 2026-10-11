@@ -454,6 +454,9 @@ Stack: rendering uses no large local variables. Fixed-size `char[96]` per-task l
 - On-device client_id entry via `KeyboardEntryActivity`.
 - Web settings page integration.
 - Shared task-list rendering: extract the common `TodoistActivity`/`MsTodoActivity` row renderer into a shared component once both integrations are stable.
+- **Pagination of Graph API results.** The current `$top=64` cap and 24 KB buffer mean large task lists are truncated silently. A pagination loop using `@odata.nextLink` would fetch all matching tasks across multiple requests, accumulating them into the vector until a configurable cap is reached. The response buffer pattern (lazy allocation, truncation tolerance) stays the same; only the fetch loop changes.
+- **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
+- **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.
 
 ## 14. Decisions log
 
