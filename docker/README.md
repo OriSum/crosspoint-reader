@@ -79,6 +79,32 @@ Everything after the image name replaces the default command:
 docker run --rm -it -v "$PWD":/work crosspoint-build bash
 ```
 
+## Formatting (clang-format)
+
+The image ships clang-format 21, the same version the CI formatting check
+installs, so `./bin/clang-format-fix` produces the same result locally as in
+CI. Run it against the mounted checkout:
+
+```sh
+docker run --rm -it -v "$PWD":/work crosspoint-build ./bin/clang-format-fix
+```
+
+Pass `-g` to format only the C/C++ files currently modified in `git status`
+(what you want before committing):
+
+```sh
+docker run --rm -it -v "$PWD":/work crosspoint-build ./bin/clang-format-fix -g
+```
+
+The command rewrites files in place in your checkout. To reproduce the CI
+check exactly (it fails if formatting changes anything), run the formatter and
+then confirm the tree is clean:
+
+```sh
+docker run --rm -it -v "$PWD":/work crosspoint-build ./bin/clang-format-fix
+git diff --exit-code
+```
+
 ## Flashing
 
 Serial devices are not available inside the container by default. Pass the

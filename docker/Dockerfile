@@ -7,7 +7,8 @@
 #   - build command: CROSSPOINT_RC_HASH=<short sha> pio run -e x4pro-gh_release_rc -j1
 #
 # Unlike ci.yml, this workflow runs no clang-format or cppcheck steps, so the
-# image ships neither clang-format nor libpcre3.
+# image ships no libpcre3. clang-format 21 is installed below so the CI
+# formatting check can be reproduced locally (see docker/README.md).
 #
 # The image contains only tooling. Source code is bind-mounted at /work, so
 # builds read/write the host checkout directly (generated i18n files, .pio,
@@ -44,6 +45,11 @@ RUN pip install --no-cache-dir \
 COPY scripts/requirements.txt /tmp/crosspoint-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/crosspoint-requirements.txt \
   && rm /tmp/crosspoint-requirements.txt
+
+# clang-format 21, matching the version ci.yml installs, so
+# `./bin/clang-format-fix` produces the same result as the CI formatting check.
+# Debian trixie has no clang-format-21 package, so take the PyPI build.
+RUN pip install --no-cache-dir "clang-format==21.1.8"
 
 # Run as a non-root user so build artifacts in the mounted checkout are not
 # owned by root on the host. UID/GID default to 1000; override at build time

@@ -13,6 +13,9 @@ Run `uname -s` once at session start and select tools/commands for the host:
 
 For formatting on every host, use `./bin/clang-format-fix -g` exclusively.
 Never invoke or probe `clang-format` directly.
+When the host has no clang-format 21, run it through the Docker image instead
+of installing it: `docker run --rm -v "$PWD":/work crosspoint-build ./bin/clang-format-fix -g`
+(see [docker/README.md](../../docker/README.md)).
 
 ### Build in an existing environment
 

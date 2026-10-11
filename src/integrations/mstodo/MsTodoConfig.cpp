@@ -35,7 +35,6 @@ bool MsTodoConfig::load() {
   accessToken.clear();
   refreshToken.clear();
   tokenExpiryEpoch = 0;
-  listId.clear();
   clientId.clear();
   sleepScreenEnabled = false;
 
@@ -75,7 +74,6 @@ bool MsTodoConfig::load() {
   accessToken = doc["access_token"] | std::string("");
   refreshToken = doc["refresh_token"] | std::string("");
   tokenExpiryEpoch = doc["token_expiry_epoch"] | 0L;
-  listId = doc["list_id"] | std::string("");
   clientId = doc["client_id"] | std::string("");
   sleepScreenEnabled = doc["sleep_screen_enabled"] | false;
 
@@ -107,12 +105,6 @@ bool MsTodoConfig::setTokens(const std::string& access, const std::string& refre
   return persist();
 }
 
-bool MsTodoConfig::setListId(const std::string& id) {
-  if (id == listId) return true;
-  listId = id;
-  return persist();
-}
-
 bool MsTodoConfig::setSleepScreenEnabled(bool enabled) {
   if (enabled == sleepScreenEnabled) return true;
   sleepScreenEnabled = enabled;
@@ -126,18 +118,15 @@ bool MsTodoConfig::signOut() {
   const std::string savedAccess = accessToken;
   const std::string savedRefresh = refreshToken;
   const long savedExpiry = tokenExpiryEpoch;
-  const std::string savedListId = listId;
 
   accessToken.clear();
   refreshToken.clear();
   tokenExpiryEpoch = 0;
-  listId.clear();
 
   if (!persist()) {
     accessToken = savedAccess;
     refreshToken = savedRefresh;
     tokenExpiryEpoch = savedExpiry;
-    listId = savedListId;
     return false;
   }
 
@@ -163,7 +152,6 @@ bool MsTodoConfig::persist() {
   doc["access_token"] = accessToken;
   doc["refresh_token"] = refreshToken;
   doc["token_expiry_epoch"] = tokenExpiryEpoch;
-  doc["list_id"] = listId;
   doc["client_id"] = clientId;
   doc["sleep_screen_enabled"] = sleepScreenEnabled;
 
@@ -227,7 +215,6 @@ bool MsTodoConfig::forget() {
   accessToken.clear();
   refreshToken.clear();
   tokenExpiryEpoch = 0;
-  listId.clear();
   clientId.clear();
   sleepScreenEnabled = false;
   return ok;

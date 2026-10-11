@@ -29,7 +29,7 @@ The integration reuses the Todoist integration's architecture end to end (config
 
 - Mark-complete, add, edit, or delete tasks (read-only only).
 - Task creation, steps, notes, categories, reminders.
-- Multiple list selection (v1 always uses the default task list; `wellknownListName == "default"`).
+- Multiple list selection (v1 always uses the default task list; `wellknownListName == "defaultList"`).
 - Multiple Microsoft accounts.
 - Filters other than the fixed "today + overdue" query.
 - Weather, geolocation, timezone, date-format, or layout-mode settings.
@@ -236,9 +236,13 @@ User selects "MS To Do" on home screen
     → MsTodoClient::fetchToday(accessToken, &tasks)
         - GET https://graph.microsoft.com/v1.0/me/todo/lists  → resolve default list id
         - GET https://graph.microsoft.com/v1.0/me/todo/lists/<id>/tasks
-              ?$filter=status ne 'completed'
-              &$select=title,dueDateTime,status,importance
+              ?$filter=status%20ne%20%27completed%27
+              %20and%20dueDateTime/dateTime%20ge%20%271970-01-01%27
+              %20and%20dueDateTime/dateTime%20le%20%27<today%2B7>%27
               &$top=64
+              [percent-encoded; raw spaces/quotes are rejected by http_parser;
+               $top=64 is a safety cap to keep the response under the 24 KB buffer]
+              [no $select — see §7.2]
         - Streamed deserializeJson into reserved std::vector<MsTodoTask> (cap 64)
         - Client-side filter: due date == today OR (due date < today AND not completed)
     → captureSnapshotIfNeeded()     [identical render-twice trick as Todoist]
@@ -247,13 +251,32 @@ User selects "MS To Do" on home screen
 
 Two Graph requests per fetch (list resolution + tasks) instead of Todoist's one. The resolved default-list id is cached in `mstodo.json` (`list_id`) so subsequent fetches skip the first request; it is re-resolved when a fetch returns 404 for the stored id (user deleted the list).
 
-### 7.2 Why client-side filtering
+### 7.2 Why no `$select`, and why the date filter
 
-Microsoft Graph does not reliably support `$filter` on `dueDateTime` for To Do tasks (documented limitation; behavior varies). The `$filter=status ne 'completed'` clause is supported and keeps completed tasks out of the payload; the today/overdue split is computed on-device from `dueDateTime.dateTime`, exactly like `TodoistClient::isOverdue` does with `sscanf` + `localtime_r`.
+Microsoft Graph documents `$select` as supported on the To Do endpoints, but on a personal Microsoft account (MSA) it does not work:
+
+- A real field name (`title`, `id,wellknownListName`) → **HTTP 400** `RequestBroker--ParseUri`. The client maps 400 to a generic network error, which is what produced the original "Could not fetch tasks".
+- A field name the broker accepts (`id`, `status`) → **200 but silently ignored**; every field is still returned, so the payload is not reduced.
+- An unknown field name → a different 400 (`BadRequest`, "Parsing OData Select and Expand failed").
+
+The failure is deterministic and independent of parameter order, comma encoding, headers, and API version (v1.0 and beta both fail). Microsoft's own docs warn that query parameters can "fail silently" and that list-tasks supports only "some" of the OData query parameters. `$select` is therefore removed from both requests.
+
+The tasks request instead filters server-side on the due date:
+
+```
+$filter=status ne 'completed'
+        and dueDateTime/dateTime ge '1970-01-01'
+        and dueDateTime/dateTime le '<today + 7 days>'
+```
+
+- `ge '1970-01-01'` excludes undated tasks; a null comparison (`eq null`) is rejected with 400, so an old lower bound is used.
+- `le '<today + 7 days>'` bounds the window to overdue + today + the next seven days, computed on-device from the local clock.
+
+This replaces the previous `$top=64`, which returned the first 64 tasks in list order and hid overdue tasks sitting deeper in a long list. The today/overdue split is still computed on-device from `dueDateTime.dateTime`, exactly like `TodoistClient::isOverdue` does with `sscanf` + `localtime_r`.
 
 ### 7.3 Response size budget
 
-Graph task JSON is far more verbose than Todoist's even with `$select` (~250–350 bytes/task vs ~180). 64 tasks ≈ 22 KB worst case. The response buffer is therefore **24 KB**, allocated lazily after the TLS handshake exactly as `TodoistClient` does (the 16 KB Todoist cap is too small here; 32 KB is not reliably available as one contiguous block on the C3 after WiFi+NTP+TLS). Truncation is handled gracefully — parse what arrived, log `MSTD truncated`.
+Graph task JSON is verbose (~250–350 bytes/task vs Todoist's ~180) and `$select` cannot trim it (§7.2). The date `$filter` keeps the window small in practice (a few KB for a typical account), but a user with many tasks due in the next week can still produce a large body. The response buffer is therefore **24 KB**, allocated lazily after the TLS handshake exactly as `TodoistClient` does (the 16 KB Todoist cap is too small here; 32 KB is not reliably available as one contiguous block on the C3 after WiFi+NTP+TLS). Truncation is handled gracefully — parse what arrived, log `MSTD truncated`.
 
 ### 7.4 Refresh (Confirm pressed)
 
@@ -464,8 +487,8 @@ Stack: rendering uses no large local variables. Fixed-size `char[96]` per-task l
 | 3 | Compiled-in default client_id + SD override | Zero-setup for fork users; escape hatch for tenant restrictions |
 | 4 | Tokens on SD, plain text | Same trade-off as the Todoist token; SD is removable and inspectable; SPIFFS stays untouched |
 | 5 | Refresh token rotation persisted | Microsoft rotates refresh tokens; dropping the new one would break the session within weeks |
-| 6 | Client-side today/overdue filtering | Graph `$filter` on `dueDateTime` is unreliable for To Do tasks |
-| 7 | `$select` on the tasks request | Cuts per-task JSON roughly in half; the difference between a 22 KB and a 40 KB response on a 24 KB buffer |
+| 6 | Server-side date `$filter`, client-side today/overdue split | `$filter` on `dueDateTime` works and bounds the window to overdue + today + 7 days; the today/overdue split is still computed on-device |
+| 7 | No `$select` on either request | `$select` returns HTTP 400 `RequestBroker--ParseUri` for real field names on MSA accounts, and is silently ignored for the rest — it cannot trim the payload (§7.2) |
 | 8 | Default list only, cached `list_id` | One fewer HTTPS round-trip per fetch; re-resolve on 404 covers list deletion |
 | 9 | Portrait only, no orientation settings | Simpler config and render path; the snapshot always matches the activity orientation, so no render-twice trick and no orientation gate at sleep |
 | 10 | Snapshot does not auto-expire | User has full control via Refresh; staleness is user's responsibility |
