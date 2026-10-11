@@ -19,6 +19,7 @@ enum class SettingAction {
   ClockSettings,
   KOReaderSync,
   TodoistSettings,
+  MsTodoSettings,
   OPDSBrowser,
   Network,
   ClearCache,
