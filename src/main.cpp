@@ -37,6 +37,7 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "integrations/mstodo/MsTodoConfig.h"
 #include "integrations/todoist/TodoistConfig.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
@@ -513,6 +514,7 @@ void setup() {
   }
   SETTINGS.loadFromFile();
   TODOIST_CONFIG.load();
+  MSTODO_CONFIG.load();
   // Push the saved timezone's POSIX rule into the clock (migrating the legacy
   // UTC-offset setting on first boot after the update).
   timezones::applyToClock();
