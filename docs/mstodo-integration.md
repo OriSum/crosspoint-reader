@@ -180,11 +180,66 @@ the other to show.
 ## What the activity shows
 
 A single fixed view: an "MS To Do" header with an `Updated HH:MM` stamp
-from the last successful fetch, and the task list below it. The query is
-fixed — today's tasks plus overdue ones from the default list — so there
-are no filter, timezone, or layout settings to manage. Each row shows a
-marker glyph (bullet for today, `!` for overdue, `›` for future-dated),
-the task title, and a dd/mm date suffix when the task carries a due date.
+from the last successful fetch, and the task list below it. The query
+fetches overdue tasks, tasks due today, and tasks due within the next
+seven days from the default list — so there are no filter, timezone, or
+layout settings to manage. Each row shows a marker glyph (bullet for
+today, `!` for overdue, `›` for future-dated), the task title, and a
+dd/mm date suffix when the task carries a due date.
+
+---
+
+## Why the requests look the way they do
+
+This section records a Microsoft Graph quirk that shaped the client, so a
+future change does not reintroduce it.
+
+The client makes two requests:
+
+1. `GET /me/todo/lists` — find the list whose `wellknownListName` is
+   `defaultList` and remember its `id`.
+2. `GET /me/todo/lists/<id>/tasks?$filter=...` — fetch the tasks.
+
+**`$select` is not used, on purpose.** Microsoft Graph's `$select`
+parameter is documented as a way to trim the response, and the To Do
+endpoints list it as supported. In practice, on a personal Microsoft
+account (MSA), it does not work:
+
+- `$select` with a real field name (for example `title`, or
+  `id,wellknownListName`) returns **HTTP 400** with inner error
+  `RequestBroker--ParseUri`. The client maps 400 to a generic network
+  error, which is what produced the original "Could not fetch tasks".
+- `$select` with a field name the broker happens to accept (for example
+  `id` or `status`) returns **200 but is silently ignored** — every field
+  is still returned, so the payload is not reduced at all.
+- `$select` with an unknown field name returns a different 400
+  (`BadRequest`, "Parsing OData Select and Expand failed").
+
+The failure is deterministic (it reproduces on every request), and it is
+independent of parameter order, comma encoding, request headers, and API
+version (v1.0 and beta both fail). Microsoft's own documentation warns
+that query parameters can "fail silently" and that the list-tasks method
+supports only "some" of the OData query parameters.
+
+**What the client does instead.** It filters server-side on the due date:
+
+```
+$filter=status ne 'completed'
+        and dueDateTime/dateTime ge '1970-01-01'
+        and dueDateTime/dateTime le '<today + 7 days>'
+```
+
+- `status ne 'completed'` keeps finished tasks out of the payload.
+- `ge '1970-01-01'` excludes tasks with no due date. A null comparison
+  (`dueDateTime/dateTime eq null`) is rejected with HTTP 400, so a very
+  old lower bound is used instead.
+- `le '<today + 7 days>'` bounds the window to overdue + today + the next
+  seven days. The upper bound is computed on-device from the local clock.
+
+This keeps the response small (a few KB for a typical account) without
+`$select`, and — unlike the previous `$top=64` — it does not hide overdue
+tasks that sit deep in a long list. The today/overdue split is still
+computed on-device from each task's `dueDateTime`.
 
 ---
 

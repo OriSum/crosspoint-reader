@@ -20,9 +20,14 @@ constexpr int kHttpTimeoutMs = 15000;
 // of heap on top of these — every KB we free here is one mbedTLS can take.
 constexpr size_t kHttpBufSize = 2048;
 constexpr size_t kMaxTasks = 64;
-// Graph JSON is ~1.5x Todoist's even with $select. 64 tasks ≈ 22 KB worst
-// case. 24 KB cap trades a higher steady-state footprint for predictability
-// (same rationale as Todoist's 16 KB cap). Truncation is handled gracefully.
+// Tasks window: overdue + today + next N days. The activity
+// still computes the today/overdue split on-device.
+constexpr int kTaskWindowDays = 7;
+// Graph task JSON is verbose (~250-350 bytes/task) and $select cannot trim it
+// (see fetchToday). The date $filter keeps the window small in practice, but a
+// user with many tasks due in the next week can still produce a large body.
+// 24 KB cap trades a higher steady-state footprint for predictability (same
+// rationale as Todoist's 16 KB cap). Truncation is handled gracefully.
 constexpr size_t kMaxResponseBytes = 24 * 1024;
 
 struct ResponseBuffer {
@@ -117,6 +122,22 @@ bool isOverdue(const char* due) {
   return d < nowTm.tm_mday;
 }
 
+// Writes the local date `daysAhead` days from now as "YYYY-MM-DD" (size 11).
+// Used as the inclusive upper bound of the tasks $filter. If the clock is not
+// set yet, writes "9999-12-31" so a bad clock never hides tasks.
+void formatDatePlusDays(int daysAhead, char* out, size_t outCap) {
+  if (outCap < 11) return;
+  time_t now = time(nullptr);
+  if (now < 1700000000) {  // clock not set yet
+    snprintf(out, outCap, "9999-12-31");
+    return;
+  }
+  now += static_cast<time_t>(daysAhead) * 86400;
+  struct tm tm;
+  localtime_r(&now, &tm);
+  strftime(out, outCap, "%Y-%m-%d", &tm);
+}
+
 void copyTitle(char* dst, size_t dstCap, const char* src) {
   if (dstCap == 0) return;
   if (!src) {
@@ -205,8 +226,12 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
   }
 
   // Step 1: resolve the default list id if we don't have it cached.
+  // No $select here: Microsoft Graph rejects $select on the To Do endpoints
+  // for personal (MSA) accounts with HTTP 400 RequestBroker--ParseUri, and
+  // silently ignores it for the few field names it does accept. See
+  // docs/mstodo-integration.md ("Why the requests look the way they do").
   if (outListId.empty()) {
-    std::string url = std::string(kGraphBase) + "/me/todo/lists?$select=id,wellknownListName";
+    std::string url = std::string(kGraphBase) + "/me/todo/lists";
     std::string response;
     const int code = getWithToken(url.c_str(), accessToken, response);
     if (code < 0) return FetchResult::NetworkError;
@@ -244,10 +269,22 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
 
   // Step 2: fetch tasks from the resolved list. The $filter value contains
   // spaces and quotes, which http_parser rejects in a raw URL, so it must be
-  // percent-encoded; the $select/$top values are already URL-safe.
-  std::string url = std::string(kGraphBase) + "/me/todo/lists/" + outListId +
-                    "/tasks?$filter=" + urlEncode("status ne 'completed'") +
-                    "&$select=title,dueDateTime,status,importance&$top=64";
+  // percent-encoded.
+  //
+  // The date bounds replace the old $select/$top approach. $select is unusable
+  // on To Do (see Step 1), and $top alone returned the first N tasks in list
+  // order, which hid overdue tasks sitting deeper in a long list. Filtering on
+  // dueDateTime server-side keeps the response small and complete:
+  //   - ge '1970-01-01' excludes undated tasks (a null comparison is rejected).
+  //   - le <today+7> bounds the window to overdue + today + the next 7 days.
+  // The activity still computes the today/overdue split on-device.
+  char upperBound[11];
+  formatDatePlusDays(kTaskWindowDays, upperBound, sizeof(upperBound));
+  std::string filter = "status ne 'completed' and dueDateTime/dateTime ge '1970-01-01' and dueDateTime/dateTime le '";
+  filter += upperBound;
+  filter += "'";
+  std::string url =
+      std::string(kGraphBase) + "/me/todo/lists/" + outListId + "/tasks?$filter=" + urlEncode(filter) + "&$top=64";
   std::string response;
   const int code = getWithToken(url.c_str(), accessToken, response);
   if (code < 0) return FetchResult::NetworkError;
