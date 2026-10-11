@@ -245,8 +245,9 @@ FetchResult MsTodoClient::fetchToday(const std::string& accessToken, std::string
   // Step 2: fetch tasks from the resolved list. The $filter value contains
   // spaces and quotes, which http_parser rejects in a raw URL, so it must be
   // percent-encoded; the $select/$top values are already URL-safe.
-  std::string url = std::string(kGraphBase) + "/me/todo/lists/" + outListId + "/tasks?$filter=" +
-                    urlEncode("status ne 'completed'") + "&$select=title,dueDateTime,status,importance&$top=64";
+  std::string url = std::string(kGraphBase) + "/me/todo/lists/" + outListId +
+                    "/tasks?$filter=" + urlEncode("status ne 'completed'") +
+                    "&$select=title,dueDateTime,status,importance&$top=64";
   std::string response;
   const int code = getWithToken(url.c_str(), accessToken, response);
   if (code < 0) return FetchResult::NetworkError;
