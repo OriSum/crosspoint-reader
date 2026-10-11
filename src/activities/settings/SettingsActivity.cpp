@@ -24,6 +24,7 @@
 #include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
+#include "MsTodoSettingsActivity.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
 #include "SdCardFontSystem.h"
@@ -105,6 +106,7 @@ void SettingsActivity::rebuildSettingsLists() {
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_TODOIST, SettingAction::TodoistSettings));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_MSTODO, SettingAction::MsTodoSettings));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   // OTA fetches this board's own release asset (see OtaUpdater); boards whose
@@ -375,6 +377,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::TodoistSettings:
         startActivityForResult(std::make_unique<TodoistSettingsActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::MsTodoSettings:
+        startActivityForResult(std::make_unique<MsTodoSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
