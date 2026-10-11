@@ -6,9 +6,9 @@ namespace mstodo {
 
 // Configuration and OAuth session for the Microsoft To Do integration,
 // persisted to /.crosspoint/mstodo.json on the SD card. The integration is a
-// read-only "today" task list, so the only state we keep is the OAuth session
-// (access/refresh token + expiry), the resolved default list id, the optional
-// client-id override, and the sleep-screen toggle.
+// read-only "Planned" task list (all lists, overdue + today + next 7 days), so
+// the only state we keep is the OAuth session (access/refresh token + expiry),
+// the optional client-id override, and the sleep-screen toggle.
 //
 // There are no orientation settings: the activity and the sleep snapshot are
 // always portrait.
@@ -27,9 +27,6 @@ class MsTodoConfig {
 
   // Unix time at which the access token expires; 0 means unknown/expired.
   long getTokenExpiryEpoch() const { return tokenExpiryEpoch; }
-
-  // Resolved id of the user's default To Do list; empty until first fetch.
-  const std::string& getListId() const { return listId; }
 
   // Client id to use for the OAuth flow: the SD override when set, otherwise
   // the compiled-in default app registration.
@@ -54,12 +51,11 @@ class MsTodoConfig {
   // setTokens stores the three values as given. Callers must pass the current
   // refresh token when a refresh response omits a new one.
   bool setTokens(const std::string& access, const std::string& refresh, long expiryEpoch);
-  bool setListId(const std::string& id);
   bool setSleepScreenEnabled(bool enabled);
 
-  // Sign out: clears the session and the resolved list id, deletes the sleep
-  // snapshot, and persists. The sleep-screen toggle is deliberately kept so
-  // re-signing-in does not silently reset the user's preference.
+  // Sign out: clears the session, deletes the sleep snapshot, and persists.
+  // The sleep-screen toggle is deliberately kept so re-signing-in does not
+  // silently reset the user's preference.
   bool signOut();
 
   // Forget: deletes /.crosspoint/mstodo.json and the sleep snapshot, and
@@ -77,7 +73,6 @@ class MsTodoConfig {
   std::string accessToken;
   std::string refreshToken;
   long tokenExpiryEpoch = 0;
-  std::string listId;
   std::string clientId;  // empty = use the compiled-in default
   bool sleepScreenEnabled = false;
 };

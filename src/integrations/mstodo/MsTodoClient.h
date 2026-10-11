@@ -14,20 +14,18 @@ enum class FetchResult {
   NetworkError,  // timeout, TLS handshake, transport
   ServerError,   // 5xx
   ParseError,    // bad/unexpected JSON
-  ListGone,      // 404 on tasks request for stored list_id
 };
 
 class MsTodoClient {
  public:
-  // Fetches today + overdue tasks from the default list. accessToken must be
-  // fresh. outListId is an in-out parameter:
-  //   - If non-empty on entry, it is used as the cached list id (skips resolution).
-  //   - If empty on entry, the default list is resolved and outListId is written.
-  //   - On FetchResult::ListGone (404 for stored list id), the caller MUST clear
-  //     outListId and retry once; the next call will re-resolve.
-  // On success, outTasks is filled (reserved to kMaxTasks).
-  static FetchResult fetchToday(const std::string& accessToken, std::string& outListId,
-                                std::vector<MsTodoTask>& outTasks);
+  // Fetches the "Planned" view: every task with a due date in the
+  // overdue + today + next kTaskWindowDays window, across all of the user's
+  // To Do lists. Microsoft To Do's Planned view is a smart view, not a list,
+  // and Graph exposes no aggregate endpoint for it, so this walks every list.
+  // accessToken must be fresh. On success, outTasks is filled (reserved to
+  // kMaxTasks) and sorted overdue-first then by due date; the activity applies
+  // its own final ordering.
+  static FetchResult fetchPlanned(const std::string& accessToken, std::vector<MsTodoTask>& outTasks);
 };
 
 }  // namespace mstodo
