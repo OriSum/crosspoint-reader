@@ -148,7 +148,7 @@ Microsoft Entra ID supports the device-code flow for public clients (no client s
 POST https://login.microsoftonline.com/common/oauth2/v2.0/devicecode
 Content-Type: application/x-www-form-urlencoded
 
-client_id=<CLIENT_ID>&scope=Tasks.Read+offline_access+User.Read
+client_id=<CLIENT_ID>&scope=Tasks.Read+offline_access
 ```
 
 Response:
@@ -198,14 +198,14 @@ Before any fetch, the activity checks `MsTodoConfig::isAccessTokenExpired()` (st
 ```
 POST https://login.microsoftonline.com/common/oauth2/v2.0/token
 grant_type=refresh_token&client_id=<CLIENT_ID>&refresh_token=<REFRESH_TOKEN>
-&scope=Tasks.Read+offline_access+User.Read
+&scope=Tasks.Read+offline_access
 ```
 
 Microsoft rotates refresh tokens: whenever a refresh response contains a new `refresh_token`, it replaces the stored one. If the refresh fails with `invalid_grant` (revoked, expired after ~90 days of inactivity), the integration falls back to the sign-in flow — the user simply signs in again; no error dead-end.
 
 ### 6.3 Client ID
 
-- The fork ships a compiled-in default `client_id`: `23db5763-8f56-47b7-83ed-83e808e77c71` (a public-client Azure app registration with delegated `Tasks.Read`, `offline_access`, `User.Read` and "Allow public client flows" enabled). This is the fork maintainer's responsibility to register once.
+- The fork ships a compiled-in default `client_id`: `23db5763-8f56-47b7-83ed-83e808e77c71` (a public-client Azure app registration with "Allow public client flows" enabled). The device requests only the delegated `Tasks.Read` and `offline_access` scopes. This is the fork maintainer's responsibility to register once.
 - A user may override it via `"client_id"` in `mstodo.json` (e.g. corporate tenant policies). Validation: non-empty, 36-char GUID shape.
 - The client ID is not a secret; storing it in plain text on the SD card is acceptable. Access and refresh tokens are also plain text on the SD card — same trade-off as the Todoist token, documented in the user guide.
 
@@ -498,3 +498,4 @@ Stack: rendering uses no large local variables. Fixed-size `char[96]` per-task l
 | 13 | Synchronous sign-in poll inside `onEnter` | No FreeRTOS task lifecycle to manage; Back-cancellable between ticks; matches the activity's existing synchronous fetch model |
 | 15 | QR code on the sign-in screen encoding the URL only | Removes browser-and-URL typing on phones; `QrUtils::drawQrCode` + `ricmoo/QRCode` are already shipped and used by `CrossPointWebServerActivity`; fixed short URI keeps the QR at version 4 with large modules |
 | 14 | Microsoft Graph v1.0 | Stable surface; beta endpoints change without notice |
+| 16 | No `User.Read` scope | The client only calls To Do endpoints (`/me/todo/...`), which resolve the user from the token subject; no profile access is needed. Requesting it would widen the consent prompt for no benefit |

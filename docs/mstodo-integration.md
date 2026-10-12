@@ -29,10 +29,10 @@ device takes care of the rest.
 No configuration file is required for a first run — the sign-in flow starts
 automatically the first time you open the activity.
 
-The fork ships a compiled-in Azure app registration (a public client with
-delegated `Tasks.Read`, `offline_access`, and `User.Read` permissions), so
-you do not need to register an app yourself. Fork maintainers who want their
-own registration can set `client_id` in `mstodo.json` (see §2).
+The fork ships a compiled-in Azure app registration (a public client), so
+you do not need to register an app yourself. The device requests only the
+delegated `Tasks.Read` and `offline_access` scopes. Fork maintainers who want
+their own registration can set `client_id` in `mstodo.json` (see §2).
 
 ---
 
@@ -365,7 +365,7 @@ overwrites both the BMP and the meta.
 
 - The device signs in with an OAuth device code. It never sees your
   Microsoft password — only task-scoped tokens (`Tasks.Read`,
-  `offline_access`, `User.Read`).
+  `offline_access`).
 - Task titles and due dates leave Microsoft Graph, hit the device over
   TLS, and are stored unencrypted on the SD card (in the BMP for the
   sleep screen, in heap-only structs while the activity is running).
