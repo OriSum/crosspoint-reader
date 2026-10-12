@@ -15,8 +15,9 @@ namespace {
 constexpr const char* kDeviceCodeUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode";
 constexpr const char* kTokenUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 // Space-separated scopes, URL-encoded as '+'. Tasks.Read is the read-only task
-// scope; offline_access is what makes Microsoft issue a refresh token.
-constexpr const char* kScopes = "Tasks.Read+offline_access+User.Read";
+// scope; offline_access is what makes Microsoft issue a refresh token. No
+// profile scope is needed: the client only calls /me/todo/... endpoints.
+constexpr const char* kScopes = "Tasks.Read+offline_access";
 constexpr int kHttpTimeoutMs = 15000;
 // Keep HTTP rx/tx buffers small: mbedTLS needs ~32 KB of heap on the C3 on top
 // of these, so every KB freed here is one mbedTLS can take.

@@ -15,9 +15,9 @@ constexpr const char* kSnapshotBmpPath = "/.crosspoint/mstodo_sleep.bmp";
 constexpr const char* kSnapshotMetaPath = "/.crosspoint/mstodo_sleep.meta";
 constexpr const char* kSnapshotMetaTmpPath = "/.crosspoint/mstodo_sleep.meta.tmp";
 
-// Public-client Azure app registration owned by the fork: delegated
-// Tasks.Read + offline_access + User.Read, "Allow public client flows"
-// enabled. Not a secret; users may override it via "client_id" in the config.
+// Public-client Azure app registration owned by the fork, with "Allow public
+// client flows" enabled. Not a secret; users may override it via "client_id"
+// in the config.
 constexpr const char* kDefaultClientId = "23db5763-8f56-47b7-83ed-83e808e77c71";
 
 // Refresh this long before the token actually expires, to absorb clock skew

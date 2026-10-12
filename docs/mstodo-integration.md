@@ -29,10 +29,10 @@ device takes care of the rest.
 No configuration file is required for a first run — the sign-in flow starts
 automatically the first time you open the activity.
 
-The fork ships a compiled-in Azure app registration (a public client with
-delegated `Tasks.Read`, `offline_access`, and `User.Read` permissions), so
-you do not need to register an app yourself. Fork maintainers who want their
-own registration can set `client_id` in `mstodo.json` (see §2).
+The fork ships a compiled-in Azure app registration (a public client), so
+you do not need to register an app yourself. The device requests only the
+delegated `Tasks.Read` and `offline_access` scopes. Fork maintainers who want
+their own registration can set `client_id` in `mstodo.json` (see §2).
 
 ---
 
@@ -365,7 +365,7 @@ overwrites both the BMP and the meta.
 
 - The device signs in with an OAuth device code. It never sees your
   Microsoft password — only task-scoped tokens (`Tasks.Read`,
-  `offline_access`, `User.Read`).
+  `offline_access`).
 - Task titles and due dates leave Microsoft Graph, hit the device over
   TLS, and are stored unencrypted on the SD card (in the BMP for the
   sleep screen, in heap-only structs while the activity is running).
@@ -384,6 +384,5 @@ overwrites both the BMP and the meta.
 
 The following ideas are traced here for future consideration. They are not part of the current implementation plan.
 
-- **Pagination of Graph API results.** The current `$top=64` cap and 24 KB response buffer mean large task lists are truncated silently. A pagination loop using `@odata.nextLink` would fetch all matching tasks across multiple requests, accumulating them into the vector until a configurable cap is reached. The response buffer pattern (lazy allocation, truncation tolerance) stays the same; only the fetch loop changes.
 - **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
 - **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.
