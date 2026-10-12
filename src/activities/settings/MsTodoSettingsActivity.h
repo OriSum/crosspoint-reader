@@ -6,14 +6,15 @@
 
 /**
  * Submenu for the Microsoft To Do integration settings.
- * Items (in order): sleep-screen toggle, sign out.
+ * Items (in order): sleep-screen toggle, show-overdue toggle, future-days
+ * cycler, sign out.
  *
  * There are no orientation rows: the activity and the sleep snapshot are
  * always portrait.
  */
 class MsTodoSettingsActivity final : public UiListActivity {
  public:
-  static constexpr int kItemCount = 2;
+  static constexpr int kItemCount = 4;
 
   MsTodoSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
