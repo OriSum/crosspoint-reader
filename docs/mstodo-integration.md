@@ -22,11 +22,17 @@ device takes care of the rest.
 - A Microsoft account with tasks in Microsoft To Do.
 - A WiFi network the device can reach (configured via the existing WiFi
   selection flow — Settings → WiFi).
-- An SD card with the `/.crosspoint/` directory writable. The firmware
-  creates the directory if it doesn't exist; nothing else is required.
+- An SD card with a writable `/.crosspoint/` directory. The firmware
+  creates the directory when it first writes settings; nothing else is
+  required.
 
 No configuration file is required for a first run — the sign-in flow starts
 automatically the first time you open the activity.
+
+The fork ships a compiled-in Azure app registration (a public client with
+delegated `Tasks.Read`, `offline_access`, and `User.Read` permissions), so
+you do not need to register an app yourself. Fork maintainers who want their
+own registration can set `client_id` in `mstodo.json` (see §2).
 
 ---
 
@@ -91,9 +97,9 @@ ID override.
 | `token_expiry_epoch` | number | (managed) | Unix time when the access token expires. Don't edit. |
 | `sleep_screen_enabled` | bool | `false` | When `true` and a snapshot exists, the sleep screen renders the cached task list instead of the default rotation. |
 
-The file is bounded at 4 KB — parsing aborts and the integration disables
-itself if the file is larger. Unknown keys are ignored on load and dropped
-on the next persist.
+The file is bounded at 4 KB — parsing aborts and the integration treats
+the file as absent if it is larger, so you are asked to sign in again.
+Unknown keys are ignored on load and dropped on the next persist.
 
 **Treat the file like a password.** It contains live session tokens in
 plain text. If you lend the SD card to someone, run **Settings → MS To Do →
@@ -137,24 +143,25 @@ pio run -e gh_release -t upload
 
 1. From the home screen menu, open **MS To Do**.
 2. The activity validates its session (refreshing the token if needed),
-   brings up WiFi, syncs NTP, and fetches your tasks. Expect a few seconds
-   for a small account; a large account (many lists) takes longer, because
-   the Planned view walks every list over one connection.
+   brings up WiFi, syncs the clock (from the hardware RTC when available,
+   otherwise NTP), and fetches your tasks. Expect a few seconds for a small
+   account; a large account (many lists) takes longer, because the Planned
+   view walks every list over one connection.
 3. Press **Confirm** to refresh, **Up/Down** to scroll, **Back** to exit.
 
 The list shows the Microsoft To Do **Planned** view: every task with a due
 date in the overdue + today + next seven days window, across **all** of your
 To Do lists. Completed tasks and tasks with no due date are never shown.
 
-After a successful fetch with `sleep_screen_enabled: true`, the device
-also writes:
+After every successful fetch, the device also writes:
 
 - `/.crosspoint/mstodo_sleep.bmp` — the rendered task list as a bitmap
-- `/.crosspoint/mstodo_sleep.meta` — JSON sidecar with capture time and
-  orientation
+- `/.crosspoint/mstodo_sleep.meta` — JSON sidecar with the capture time
 
-When the device sleeps, `SleepActivity` checks for these files and, if
-they exist, renders the cached BMP as the sleep wallpaper.
+These are written regardless of the sleep-screen toggle; the toggle only
+controls whether the sleep screen uses them. When the device sleeps,
+`SleepActivity` checks for the snapshot and, if it exists, renders the
+cached BMP as the sleep wallpaper.
 
 ---
 
@@ -165,7 +172,7 @@ write-through to the file:
 
 | Row | What it does |
 |---|---|
-| Sleep screen | Toggles `sleep_screen_enabled`. |
+| MS To Do sleep screen | Toggles `sleep_screen_enabled`. |
 | Sign out | Removes the stored session, the snapshot BMP and meta, and any orphaned `.tmp` files. Your sleep-screen toggle is kept. **No confirmation prompt — single press signs you out.** |
 
 The next time you open the activity after signing out, the sign-in flow
@@ -218,9 +225,10 @@ Graph throttles the parallel sub-requests with HTTP 429.
 **Bounds and resilience.** The walk is bounded so a large account cannot
 stall the device: at most 32 lists, at most 4 pages per list (32 tasks per
 list), and 64 tasks overall. A list that fails (deleted, transient 5xx/429,
-or a page too large for the buffer) is skipped and the tasks already
-collected from other lists are kept; only an authentication failure aborts
-the whole fetch.
+HTTP 400, or a page too large for the buffer) is skipped and the tasks
+already collected from other lists are kept. An authentication failure
+(401/403) aborts the whole fetch, as does a transport failure or an
+allocation failure on any request.
 
 **`$select` is not used, on purpose.** Microsoft Graph's `$select`
 parameter is documented as a way to trim the response, and the To Do
@@ -274,17 +282,18 @@ All MS To Do state lives under `/.crosspoint/` on the SD card.
 | `/.crosspoint/mstodo.json` | Config and sign-in session (tokens). |
 | `/.crosspoint/mstodo.json.tmp` | Atomic-write tmp file. Cleaned up on success or on the next sign-out. |
 | `/.crosspoint/mstodo_sleep.bmp` | Last successful task-list render (sleep-screen source). |
-| `/.crosspoint/mstodo_sleep.meta` | Capture time for the BMP. |
+| `/.crosspoint/mstodo_sleep.meta` | Capture time for the BMP (written for future use; not currently read). |
 | `/.crosspoint/mstodo_sleep.meta.tmp` | Atomic-write tmp for the meta. |
 
 ---
 
 ## Troubleshooting
 
-### "Not signed in"
+### Sign-in starts every time
 
-No session is stored yet, or the config file is malformed. Open the
-activity and complete the device-code sign-in.
+No session is stored, or `mstodo.json` is malformed — the device treats a
+broken config as "not signed in" and starts the device-code flow. Complete
+the sign-in; the device rewrites the file on success.
 
 ### Sign-in code expired
 
@@ -319,8 +328,9 @@ pio device monitor
 
 The most common one is `MBEDTLS_ERR_SSL_ALLOC_FAILED (-0x7F00)` —
 mbedTLS couldn't claim the ~32 KB it needs for the handshake. Free heap
-by closing other activities first; the integration already releases the
-home-screen cover buffer before connecting.
+by closing other activities first; the home screen frees its cover buffer
+when you leave it, so opening MS To Do from the home screen already
+releases that memory.
 
 ### "Rate limited - try later"
 
@@ -335,10 +345,12 @@ Check, in order:
    exists at `/.crosspoint/mstodo_sleep.bmp`).
 3. The Todoist sleep screen isn't also enabled — Todoist takes precedence.
 
-The serial log prints which precondition failed when sleep is entered:
+The serial log prints which precondition failed when sleep is entered
+(debug builds only — release builds compile out debug logging):
 
 ```
-MSTD: tryRenderMsTodoSleepScreen: <reason>
+MSTD: Sleep screen skipped: sleep_screen_enabled=false in config
+MSTD: Sleep screen skipped: /.crosspoint/mstodo_sleep.bmp missing
 ```
 
 ### Stale snapshot

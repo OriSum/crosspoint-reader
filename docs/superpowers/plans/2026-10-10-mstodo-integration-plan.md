@@ -9,6 +9,7 @@
 **Tech Stack:** ESP32-C3 (ESP-IDF + Arduino), C++20 no-RTTI no-exceptions, ArduinoJson 7.4.2, `esp_http_client` + `esp_crt_bundle_attach`, ESP-IDF SNTP, existing UITheme/HalStorage/HalDisplay abstractions.
 
 **Spec:** `docs/superpowers/specs/2026-10-10-mstodo-integration-design.md`
+**User guide:** `docs/mstodo-integration.md`
 
 **Base branch:** `mstodo-integration`, cut from `todoist-integration-upgrade`. The Todoist integration is the structural template — every module below has a Todoist sibling to adapt.
 
