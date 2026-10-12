@@ -102,7 +102,7 @@ docs/mstodo-integration.md                      Phase 7
 - [ ] 2.2 Create `src/integrations/mstodo/MsTodoAuth.cpp` by adapting `TodoistClient.cpp`'s HTTP skeleton: same `esp_http_client_config_t` shape, same 2 KB rx/tx buffers, same `esp_crt_bundle_attach`, same lazy `ResponseBuffer` allocation pattern (token responses are < 2 KB, but keep the pattern for heap-predictability). Differences:
   - POST, not GET; `application/x-www-form-urlencoded` body built with the same `urlEncode` helper (copy it into this TU or a small shared header — do not make `TodoistClient` depend on mstodo).
   - Endpoints: `https://login.microsoftonline.com/common/oauth2/v2.0/devicecode` and `.../v2.0/token`.
-  - Scopes: `Tasks.Read offline_access User.Read` (space-separated, URL-encoded as `+`).
+  - Scopes: `Tasks.Read offline_access` (space-separated, URL-encoded as `+`).
   - Parse token JSON: `access_token`, `refresh_token` (may be absent on refresh — keep the old one), `expires_in`.
   - Parse error JSON: `error` field → map `authorization_pending`→`Pending`, `slow_down`→`SlowDown`, `authorization_expired`/`expired_token`→`Expired`, `declined`/`authorization_declined`→`Declined`, `invalid_grant`→`InvalidGrant`, else `Failed`.
   - **Never log token values.** Log lengths only.
@@ -110,7 +110,7 @@ docs/mstodo-integration.md                      Phase 7
   ```cpp
   constexpr const char* kDefaultClientId = "23db5763-8f56-47b7-83ed-83e808e77c71";
   ```
-  (Azure app registration: public client, delegated `Tasks.Read` + `offline_access` + `User.Read`, "Allow public client flows" enabled.)
+  (Azure app registration: public client with "Allow public client flows" enabled; the device requests delegated `Tasks.Read` + `offline_access`.)
 - [ ] 2.4 Build: `pio run` (all three environments). `./bin/clang-format-fix -g`.
 - [ ] 2.5 Hardware smoke test (serial-only): temporary test hook in `loop()` of a scratch activity is **not** allowed — instead verify by code review only this phase; the flow is exercised end-to-end in Phase 4.
 
@@ -222,7 +222,6 @@ docs/mstodo-integration.md                      Phase 7
 
 The following ideas are traced here for future consideration. They are not part of any active phase.
 
-- **Pagination of Graph API results.** The current `$top=64` cap (and the 24 KB response buffer) means the client truncates large task lists silently. A pagination loop using `@odata.nextLink` would fetch all matching tasks across multiple requests, accumulating them into the vector until the full result set is retrieved or a configurable cap is reached. This is especially valuable for users with many tasks due within the window. The response buffer pattern (lazy allocation, truncation tolerance) stays the same; only the fetch loop changes.
 - **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
 - **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.
 
