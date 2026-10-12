@@ -23,7 +23,7 @@ constexpr int kHttpTimeoutMs = 15000;
 // of these, so every KB freed here is one mbedTLS can take.
 constexpr size_t kHttpBufSize = 2048;
 // Token responses are well under 4 KB, but the buffer is allocated lazily
-// after the TLS handshake (same pattern as the Todoist client) so the
+// after the TLS handshake (same pattern as the removed Todoist client) so the
 // allocation cannot starve mbedTLS of a contiguous block. 8 KB leaves headroom
 // for a large access + refresh token pair without risking the post-handshake
 // largest-free-block budget.

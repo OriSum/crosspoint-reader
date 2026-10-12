@@ -28,7 +28,7 @@
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 6;  // File Browser, Library, File transfer, Settings, Todoist, MS To Do, MS To Do
+  int count = 5;  // File Browser, Library, File transfer, Settings, MS To Do
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -325,9 +325,6 @@ void HomeActivity::loop() {
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
         break;
-      case HomeMenuItem::TODOIST:
-        onTodoistOpen();
-        break;
       case HomeMenuItem::MSTODO:
         onMsTodoOpen();
         break;
@@ -528,9 +525,9 @@ void HomeActivity::render(RenderLock&&) {
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES),   tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE), tr(STR_TODOIST), tr(STR_MSTODO)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings, Checklist, Checklist};
+  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
+                                        tr(STR_SETTINGS_TITLE), tr(STR_MSTODO)};
+  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings, Checklist};
 
   if (hasLibrarySlot()) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
@@ -581,6 +578,5 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
-void HomeActivity::onTodoistOpen() { activityManager.goToTodoist(); }
 void HomeActivity::onMsTodoOpen() { activityManager.goToMsTodo(); }
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
