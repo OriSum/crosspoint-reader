@@ -29,6 +29,7 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "integrations/mstodo/MsTodoConfig.h"
 #include "integrations/todoist/TodoistConfig.h"
 
 namespace {
@@ -572,6 +573,10 @@ void SleepActivity::onEnter() {
     return;
   }
 
+  if (tryRenderMsTodoSleepScreen()) {
+    return;
+  }
+
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
@@ -966,6 +971,35 @@ bool SleepActivity::tryRenderTodoistSleepScreen() const {
   Bitmap bitmap(bmpFile, true);
   if (bitmap.parseHeaders() != BmpReaderError::Ok) {
     LOG_ERR("TDST", "Snapshot BMP header parse failed");
+    bmpFile.close();
+    return false;
+  }
+  renderBitmapSleepScreen(bitmap);
+  bmpFile.close();
+  return true;
+}
+
+bool SleepActivity::tryRenderMsTodoSleepScreen() const {
+  using mstodo::MsTodoConfig;
+
+  if (!MsTodoConfig::getInstance().isSleepScreenEnabled()) {
+    LOG_DBG("MSTD", "Sleep screen skipped: sleep_screen_enabled=false in config");
+    return false;
+  }
+  if (!Storage.exists("/.crosspoint/mstodo_sleep.bmp")) {
+    LOG_DBG("MSTD", "Sleep screen skipped: /.crosspoint/mstodo_sleep.bmp missing");
+    return false;
+  }
+
+  HalFile bmpFile;
+  if (!Storage.openFileForRead("MSTD", "/.crosspoint/mstodo_sleep.bmp", bmpFile)) return false;
+
+  // Always portrait: the snapshot matches the activity orientation, so there
+  // is no orientation gate (unlike the Todoist pre-check).
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  Bitmap bitmap(bmpFile, true);
+  if (bitmap.parseHeaders() != BmpReaderError::Ok) {
+    LOG_ERR("MSTD", "Snapshot BMP header parse failed");
     bmpFile.close();
     return false;
   }
