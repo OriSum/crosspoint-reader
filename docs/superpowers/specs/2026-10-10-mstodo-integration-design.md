@@ -472,14 +472,16 @@ Stack: rendering uses no large local variables. Fixed-size `char[96]` per-task l
 
 ## 13. Future work (v2 candidates)
 
+> **Update (2026-10-12):** the two bullets below were promoted to shipped features. See `docs/superpowers/specs/2026-10-12-mstodo-filter-settings-design.md` and `docs/superpowers/plans/2026-10-12-mstodo-filter-settings-plan.md`. The schema in §8.1 and the settings table in §4.3 gain `show_overdue` and `future_days`.
+
 - Mark-complete from device (PATCH `/me/todo/tasks/{id}`; introduces write semantics and retry logic).
 - List picker (enumerate `/me/todo/lists`, side-button-cycled).
 - User-configurable filter string.
 - On-device client_id entry via `KeyboardEntryActivity`.
 - Web settings page integration.
 - Shared task-list rendering: extract the common `TodoistActivity`/`MsTodoActivity` row renderer into a shared component once both integrations are stable.
-- **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
-- **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.
+- ~~**Overdue tasks visibility toggle.**~~ Shipped as `show_overdue` (2026-10-12).
+- ~~**Configurable future-day window.**~~ Shipped as `future_days` (2026-10-12).
 
 ## 14. Decisions log
 

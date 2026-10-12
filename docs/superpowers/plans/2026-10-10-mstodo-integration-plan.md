@@ -220,10 +220,12 @@ docs/mstodo-integration.md                      Phase 7
 
 ## Future work (v2 candidates)
 
+> **Update (2026-10-12):** the two bullets below were promoted to shipped features. See `docs/superpowers/plans/2026-10-12-mstodo-filter-settings-plan.md`.
+
 The following ideas are traced here for future consideration. They are not part of any active phase.
 
-- **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
-- **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.
+- ~~**Overdue tasks visibility toggle.**~~ Shipped as `show_overdue` (2026-10-12).
+- ~~**Configurable future-day window.**~~ Shipped as `future_days` (2026-10-12).
 
 ## Phase-end verification (every phase)
 
