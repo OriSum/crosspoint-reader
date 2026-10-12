@@ -4,6 +4,7 @@
 **Project:** CrossPoint Reader (Xteink X4, ESP32-C3)
 **Scope:** Personal fork; modular enough that other users can supply their own Azure app registration (client ID).
 **Status:** Draft v1 — modeled on the shipped Todoist integration (`docs/superpowers/specs/2026-05-04-todoist-integration-design.md`), with the auth model replaced by OAuth 2.0 device-code flow.
+**User guide:** `docs/mstodo-integration.md`
 
 ---
 
