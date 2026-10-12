@@ -29,9 +29,6 @@ constexpr size_t kMaxLists = 32;
 // Safety cap on pages of the /me/todo/lists response. A user with more lists
 // than one page still gets the first kMaxLists; the cap bounds the walk.
 constexpr int kMaxListPages = 4;
-// Tasks window: overdue + today + next N days. The activity
-// still computes the today/overdue split on-device.
-constexpr int kTaskWindowDays = 7;
 // Graph task JSON is verbose (~1.7 KB/task: recurrence, id, etag, timestamps)
 // and $select cannot trim it (see docs/mstodo-integration.md). A page must
 // therefore stay well under kMaxResponseBytes; 8 tasks is ~14-18 KB, which
@@ -313,7 +310,8 @@ void parseListIds(JsonArray arr, std::vector<std::string>& outIds) {
 
 }  // namespace
 
-FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, std::vector<MsTodoTask>& outTasks) {
+FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const FetchOptions& options,
+                                       std::vector<MsTodoTask>& outTasks) {
   outTasks.clear();
   outTasks.reserve(kMaxTasks);
 
@@ -374,12 +372,30 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, std::vect
   // on To Do (see Step 1), and $top alone returned the first N tasks in list
   // order, which hid overdue tasks sitting deeper in a long list. Filtering on
   // dueDateTime server-side keeps each response small and complete:
-  //   - ge '1970-01-01' excludes undated tasks (a null comparison is rejected).
-  //   - le <today+7> bounds the window to overdue + today + the next 7 days.
+  //   - the lower bound excludes undated tasks (a null comparison is rejected)
+  //     and, when show_overdue is off, excludes overdue tasks too;
+  //   - the upper bound bounds the window to today + futureDays.
   // The activity still computes the today/overdue split on-device.
+  //
+  // formatDatePlusDays() writes "9999-12-31" when the clock is unset, so a
+  // "today" lower bound would collapse the window to nothing on an unset
+  // clock. Fail open instead: keep the very old literal when the clock is not
+  // trustworthy, so a bad clock shows too much rather than nothing.
+  char lowerBound[11];
+  if (options.showOverdue) {
+    snprintf(lowerBound, sizeof(lowerBound), "1970-01-01");
+  } else {
+    formatDatePlusDays(0, lowerBound, sizeof(lowerBound));
+    if (strcmp(lowerBound, "9999-12-31") == 0) {
+      snprintf(lowerBound, sizeof(lowerBound), "1970-01-01");
+    }
+  }
   char upperBound[11];
-  formatDatePlusDays(kTaskWindowDays, upperBound, sizeof(upperBound));
-  std::string filter = "status ne 'completed' and dueDateTime/dateTime ge '1970-01-01' and dueDateTime/dateTime le '";
+  formatDatePlusDays(options.futureDays, upperBound, sizeof(upperBound));
+
+  std::string filter = "status ne 'completed' and dueDateTime/dateTime ge '";
+  filter += lowerBound;
+  filter += "' and dueDateTime/dateTime le '";
   filter += upperBound;
   filter += "'";
   const std::string filterEnc = urlEncode(filter);
@@ -449,8 +465,8 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, std::vect
     return false;                            // both undated: stable
   });
 
-  LOG_DBG("MSTD", "Parsed %u tasks from %u lists", static_cast<unsigned>(outTasks.size()),
-          static_cast<unsigned>(listIds.size()));
+  LOG_DBG("MSTD", "Parsed %u tasks from %u lists (overdue=%d, days=%d)", static_cast<unsigned>(outTasks.size()),
+          static_cast<unsigned>(listIds.size()), options.showOverdue, options.futureDays);
   return FetchResult::Ok;
 }
 
