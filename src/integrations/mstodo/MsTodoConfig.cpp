@@ -37,6 +37,8 @@ bool MsTodoConfig::load() {
   tokenExpiryEpoch = 0;
   clientId.clear();
   sleepScreenEnabled = false;
+  showOverdue = true;
+  futureDays = kDefaultFutureDays;
 
   if (!Storage.exists(kConfigPath)) {
     LOG_DBG("MSTD", "No config at %s", kConfigPath);
@@ -76,11 +78,17 @@ bool MsTodoConfig::load() {
   tokenExpiryEpoch = doc["token_expiry_epoch"] | 0L;
   clientId = doc["client_id"] | std::string("");
   sleepScreenEnabled = doc["sleep_screen_enabled"] | false;
+  showOverdue = doc["show_overdue"] | true;
+  // Clamp rather than reject: a hand-edited out-of-range value must not break
+  // the fetch.
+  futureDays = doc["future_days"] | kDefaultFutureDays;
+  if (futureDays < kMinFutureDays) futureDays = kMinFutureDays;
+  if (futureDays > kMaxFutureDays) futureDays = kMaxFutureDays;
 
   // Never log token values, not even truncated.
-  LOG_DBG("MSTD", "Config loaded (access=%u chars, refresh=%u chars, expiry=%ld, sleep=%d)",
+  LOG_DBG("MSTD", "Config loaded (access=%u chars, refresh=%u chars, expiry=%ld, sleep=%d, overdue=%d, days=%d)",
           static_cast<unsigned>(accessToken.size()), static_cast<unsigned>(refreshToken.size()), tokenExpiryEpoch,
-          sleepScreenEnabled);
+          sleepScreenEnabled, showOverdue, futureDays);
   return true;
 }
 
@@ -108,6 +116,20 @@ bool MsTodoConfig::setTokens(const std::string& access, const std::string& refre
 bool MsTodoConfig::setSleepScreenEnabled(bool enabled) {
   if (enabled == sleepScreenEnabled) return true;
   sleepScreenEnabled = enabled;
+  return persist();
+}
+
+bool MsTodoConfig::setShowOverdue(bool enabled) {
+  if (enabled == showOverdue) return true;
+  showOverdue = enabled;
+  return persist();
+}
+
+bool MsTodoConfig::setFutureDays(int days) {
+  if (days < kMinFutureDays) days = kMinFutureDays;
+  if (days > kMaxFutureDays) days = kMaxFutureDays;
+  if (days == futureDays) return true;
+  futureDays = days;
   return persist();
 }
 
@@ -143,7 +165,8 @@ bool MsTodoConfig::signOut() {
   Storage.remove(kConfigTmpPath);
   Storage.remove(kSnapshotMetaTmpPath);
 
-  // sleepScreenEnabled is intentionally kept so re-signing-in does not reset it.
+  // Display preferences are intentionally kept so re-signing-in does not reset
+  // them: sleepScreenEnabled, showOverdue, futureDays.
   return ok;
 }
 
@@ -154,6 +177,8 @@ bool MsTodoConfig::persist() {
   doc["token_expiry_epoch"] = tokenExpiryEpoch;
   doc["client_id"] = clientId;
   doc["sleep_screen_enabled"] = sleepScreenEnabled;
+  doc["show_overdue"] = showOverdue;
+  doc["future_days"] = futureDays;
 
   // Atomic write: serialize to .tmp, close, rename to final path.
   if (Storage.exists(kConfigTmpPath)) {
@@ -217,6 +242,8 @@ bool MsTodoConfig::forget() {
   tokenExpiryEpoch = 0;
   clientId.clear();
   sleepScreenEnabled = false;
+  showOverdue = true;
+  futureDays = kDefaultFutureDays;
   return ok;
 }
 

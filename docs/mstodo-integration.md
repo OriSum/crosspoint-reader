@@ -69,8 +69,9 @@ can start over with **Retry**. Press **Back** at any time to cancel.
 
 Everything works without a config file. `/.crosspoint/mstodo.json` is
 created automatically on the SD card the first time the device stores its
-sign-in session. You only need to edit it by hand for the optional client
-ID override.
+sign-in session. The display settings are editable on device (Settings →
+MS To Do); you only need to edit the file by hand for the optional client
+ID override, or to set a `future_days` value outside the on-device ladder.
 
 ### Minimal config (optional)
 
@@ -83,7 +84,9 @@ ID override.
 ```json
 {
   "client_id": "00000000-0000-0000-0000-000000000000",
-  "sleep_screen_enabled": true
+  "sleep_screen_enabled": true,
+  "show_overdue": true,
+  "future_days": 7
 }
 ```
 
@@ -96,6 +99,10 @@ ID override.
 | `refresh_token` | string | (managed) | Set by the device. Don't edit. |
 | `token_expiry_epoch` | number | (managed) | Unix time when the access token expires. Don't edit. |
 | `sleep_screen_enabled` | bool | `false` | When `true` and a snapshot exists, the sleep screen renders the cached task list instead of the default rotation. |
+| `show_overdue` | bool | `true` | When `false`, overdue tasks are excluded from the fetch — they never reach the list or the sleep snapshot. |
+| `future_days` | number | `7` | How many days ahead the fetch reaches, inclusive of today. Clamped to 1–30 on load, so a hand-edited `0` or `999` becomes `1` or `30`. |
+
+Both display settings are also editable on device (Settings → MS To Do); the file is the persistence layer, not the only interface. Missing fields fall back to the defaults above, so a config written by an earlier firmware version loads unchanged.
 
 The file is bounded at 4 KB — parsing aborts and the integration treats
 the file as absent if it is larger, so you are asked to sign in again.
@@ -150,8 +157,9 @@ pio run -e gh_release -t upload
 3. Press **Confirm** to refresh, **Up/Down** to scroll, **Back** to exit.
 
 The list shows the Microsoft To Do **Planned** view: every task with a due
-date in the overdue + today + next seven days window, across **all** of your
-To Do lists. Completed tasks and tasks with no due date are never shown.
+date in the today + next `future_days` days window (plus overdue, unless
+`show_overdue` is off), across **all** of your To Do lists. Completed tasks
+and tasks with no due date are never shown.
 
 After every successful fetch, the device also writes:
 
@@ -173,7 +181,9 @@ write-through to the file:
 | Row | What it does |
 |---|---|
 | MS To Do sleep screen | Toggles `sleep_screen_enabled`. |
-| Sign out | Removes the stored session, the snapshot BMP and meta, and any orphaned `.tmp` files. Your sleep-screen toggle is kept. **No confirmation prompt — single press signs you out.** |
+| Show overdue | Toggles `show_overdue`. When off, overdue tasks are excluded from the fetch. |
+| Future days | Cycles `future_days` through 1 → 3 → 7 → 14 → 30. The value is the inclusive forward window, measured from today. |
+| Sign out | Removes the stored session, the snapshot BMP and meta, and any orphaned `.tmp` files. Your display preferences (sleep screen, show overdue, future days) are kept. **No confirmation prompt — single press signs you out.** |
 
 The next time you open the activity after signing out, the sign-in flow
 starts again.
@@ -186,13 +196,16 @@ the other to show.
 
 ## What the activity shows
 
-A single fixed view: an "MS To Do" header with an `Updated HH:MM` stamp
-from the last successful fetch, and the task list below it. The query
-fetches overdue tasks, tasks due today, and tasks due within the next
-seven days from **every** list — so there are no filter, timezone, or
-layout settings to manage. Each row shows a marker glyph (bullet for
-today, `!` for overdue, `›` for future-dated), the task title, and a
-dd/mm date suffix when the task carries a due date.
+A single view: an "MS To Do" header with an `Updated HH:MM` stamp from the
+last successful fetch, and the task list below it. The query fetches tasks
+due today and tasks due within the next `future_days` days (default 7) from
+**every** list, plus overdue tasks unless `show_overdue` is off. Each row
+shows a marker glyph (bullet for today, `!` for overdue, `›` for
+future-dated), the task title, and a dd/mm date suffix when the task carries
+a due date.
+
+There is no timezone or layout setting: the window is the only filter, and
+it is set on device (Settings → MS To Do) or in `mstodo.json`.
 
 ---
 
@@ -255,21 +268,27 @@ supports only "some" of the OData query parameters.
 
 ```
 $filter=status ne 'completed'
-        and dueDateTime/dateTime ge '1970-01-01'
-        and dueDateTime/dateTime le '<today + 7 days>'
+        and dueDateTime/dateTime ge '<lower>'
+        and dueDateTime/dateTime le '<today + future_days>'
 ```
 
 - `status ne 'completed'` keeps finished tasks out of the payload.
-- `ge '1970-01-01'` excludes tasks with no due date. A null comparison
-  (`dueDateTime/dateTime eq null`) is rejected with HTTP 400, so a very
-  old lower bound is used instead.
-- `le '<today + 7 days>'` bounds the window to overdue + today + the next
-  seven days. The upper bound is computed on-device from the local clock.
+- `<lower>` is `1970-01-01` when `show_overdue` is on, and today when it is
+  off. Either way it excludes tasks with no due date: a null comparison
+  (`dueDateTime/dateTime eq null`) is rejected with HTTP 400, so a date
+  literal is used instead.
+- `le '<today + future_days>'` bounds the window to today + the next
+  `future_days` days (plus overdue, when enabled). Both bounds are computed
+  on-device from the local clock.
 
 This keeps each response small without `$select`, and — unlike a plain
 `$top=64` — it does not hide overdue tasks that sit deep in a long list. The
 today/overdue split is still computed on-device from each task's
 `dueDateTime`.
+
+Filtering overdue tasks out on the server (rather than after the fetch) keeps
+the 64-task budget and the 24 KB response buffer spent on tasks the user will
+actually see.
 
 ---
 
@@ -384,5 +403,3 @@ overwrites both the BMP and the meta.
 
 The following ideas are traced here for future consideration. They are not part of the current implementation plan.
 
-- **Overdue tasks visibility toggle.** Currently overdue tasks are always shown. A `show_overdue` setting in `mstodo.json` (default `true`) would let the user hide overdue tasks from the list — useful when the list has accumulated stale items that are no longer actionable. The toggle is persisted alongside `sleep_screen_enabled` and survives sign-out.
-- **Configurable future-day window.** The current hard-coded 7-day forward window (`dueDateTime le '<today+7>'`) is a server-side `$filter` bound. A `future_days` setting (default `7`, range 1–30) would let the user control how many days ahead tasks are fetched. The value is stored in `mstodo.json` and used to build the `$filter` date bound at fetch time. This directly affects the response size budget and the vector reservation cap, so the config change must flow through `MsTodoConfig` and the fetch filter must be rebuilt on each call.

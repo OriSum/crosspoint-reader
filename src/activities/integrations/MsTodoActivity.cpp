@@ -313,7 +313,10 @@ void MsTodoActivity::proceedWithFetch() {
     MSTODO_CONFIG.setTokens(access, refresh, expiry);
   }
 
-  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), _tasks);
+  mstodo::FetchOptions options;
+  options.showOverdue = MSTODO_CONFIG.isShowOverdue();
+  options.futureDays = MSTODO_CONFIG.getFutureDays();
+  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), options, _tasks);
 
   if (r == FetchResult::Ok) {
     time_t now = time(nullptr);
