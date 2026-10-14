@@ -14,6 +14,7 @@ constexpr const char* kConfigTmpPath = "/.crosspoint/mstodo.json.tmp";
 constexpr const char* kSnapshotBmpPath = "/.crosspoint/mstodo_sleep.bmp";
 constexpr const char* kSnapshotMetaPath = "/.crosspoint/mstodo_sleep.meta";
 constexpr const char* kSnapshotMetaTmpPath = "/.crosspoint/mstodo_sleep.meta.tmp";
+constexpr const char* kLogPath = "/.crosspoint/mstodo.log";
 
 // Public-client Azure app registration owned by the fork, with "Allow public
 // client flows" enabled. Not a secret; users may override it via "client_id"
@@ -161,6 +162,8 @@ bool MsTodoConfig::signOut() {
     LOG_ERR("MSTD", "Could not remove %s", kSnapshotMetaPath);
     ok = false;
   }
+  // Also clear the log file on sign out
+  clearLog();
   // Best-effort cleanup of orphaned tmp files from any prior failed write.
   Storage.remove(kConfigTmpPath);
   Storage.remove(kSnapshotMetaTmpPath);
@@ -245,6 +248,61 @@ bool MsTodoConfig::forget() {
   showOverdue = true;
   futureDays = kDefaultFutureDays;
   return ok;
+}
+
+// Append a log entry to /.crosspoint/mstodo.log with timestamp and details.
+// This is used to capture detailed error information for later analysis.
+void MsTodoConfig::appendLog(const std::string& message) {
+  // Ensure the directory exists
+  Storage.ensureDirectoryExists("/.crosspoint");
+
+  HalFile file;
+  if (!Storage.openFileForWrite("MSTD", kLogPath, file)) {
+    LOG_ERR("MSTD", "Cannot open log file for write");
+    return;
+  }
+
+  // Get current time for timestamp
+  time_t now = time(nullptr);
+  struct tm tm_now;
+  localtime_r(&now, &tm_now);
+  char timestamp[32];
+  strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm_now);
+
+  // Format log entry
+  char logEntry[512];
+  int len = snprintf(logEntry, sizeof(logEntry), "[%s] %s\n", timestamp, message.c_str());
+  if (len > 0) {
+    file.write(reinterpret_cast<const uint8_t*>(logEntry), static_cast<size_t>(len));
+  }
+}
+
+// Read the log file content for debugging
+std::string MsTodoConfig::readLog() {
+  if (!Storage.exists(kLogPath)) {
+    return "";
+  }
+
+  HalFile file;
+  if (!Storage.openFileForRead("MSTD", kLogPath, file)) {
+    return "";
+  }
+
+  std::string buffer;
+  uint8_t chunk[256];
+  while (true) {
+    int n = file.read(chunk, sizeof(chunk));
+    if (n <= 0) break;
+    buffer.append(reinterpret_cast<const char*>(chunk), static_cast<size_t>(n));
+  }
+  return buffer;
+}
+
+// Clear the log file
+void MsTodoConfig::clearLog() {
+  if (Storage.exists(kLogPath)) {
+    Storage.remove(kLogPath);
+  }
 }
 
 }  // namespace mstodo

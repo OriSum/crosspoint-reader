@@ -81,6 +81,14 @@ class MsTodoConfig {
   // resets in-memory state to defaults.
   bool forget();
 
+  // Log management for debugging fetch failures
+  // Appends a timestamped log entry to /.crosspoint/mstodo.log
+  void appendLog(const std::string& message);
+  // Reads the entire log file content
+  std::string readLog();
+  // Clears the log file
+  void clearLog();
+
  private:
   MsTodoConfig() = default;
   MsTodoConfig(const MsTodoConfig&) = delete;

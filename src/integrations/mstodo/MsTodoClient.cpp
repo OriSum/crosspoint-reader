@@ -12,6 +12,7 @@
 #include <ctime>
 
 #include "util/TaskWatchdog.h"
+#include "MsTodoConfig.h"
 
 namespace mstodo {
 
@@ -99,6 +100,23 @@ std::string urlEncode(const std::string& s) {
     }
   }
   return out;
+}
+
+// Log detailed error information to mstodo.log for later analysis
+void logFetchError(const char* context, const std::string& details) {
+  MsTodoConfig::getInstance().appendLog(std::string("FETCH_ERROR: ") + context + " - " + details);
+}
+
+// Log detailed error information with HTTP response
+void logFetchErrorWithResponse(const char* context, int httpCode, const std::string& response) {
+  std::string details = "HTTP " + std::to_string(httpCode);
+  if (!response.empty()) {
+    // Truncate response to avoid huge log entries
+    std::string truncated = response.substr(0, 500);
+    details += " Response: " + truncated;
+    if (response.size() > 500) details += "...";
+  }
+  logFetchError(context, details);
 }
 
 // Parses an ISO 8601 datetime string (assumed to be in UTC, as returned by
@@ -375,12 +393,16 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
     for (int page = 0; page < kMaxListPages && !url.empty(); ++page) {
       std::string response;
       const int code = session.get(url, response);
-      if (code < 0) return FetchResult::NetworkError;
+      if (code < 0) {
+        logFetchError("list_resolution", "Transport error or allocation failure");
+        return FetchResult::NetworkError;
+      }
       if (code != 200) {
-        LOG_ERR("MSTD", "List resolution HTTP %d", code);
+        logFetchErrorWithResponse("list_resolution", code, response);
         return httpStatusToFetchResult(code);
       }
       if (session.truncated()) {
+        logFetchError("list_resolution", "Response truncated at cap");
         LOG_ERR("MSTD", "Lists response truncated; stopping list walk");
         break;
       }
@@ -388,6 +410,7 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
       JsonDocument doc;
       auto parseErr = deserializeJson(doc, response);
       if (parseErr) {
+        logFetchError("list_resolution", std::string("JSON parse error: ") + parseErr.c_str());
         LOG_ERR("MSTD", "List JSON parse: %s", parseErr.c_str());
         return FetchResult::ParseError;
       }
@@ -399,6 +422,7 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
     }
   }
   if (listIds.empty()) {
+    logFetchError("list_resolution", "No lists found");
     LOG_ERR("MSTD", "No lists found");
     return FetchResult::ParseError;
   }
@@ -455,18 +479,26 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
     for (int page = 0; page < kMaxPagesPerList && !url.empty(); ++page) {
       std::string response;
       const int code = session.get(url, response);
-      if (code < 0) return FetchResult::NetworkError;
+      if (code < 0) {
+        logFetchError("task_fetch", "Transport error or allocation failure for list " + listId);
+        return FetchResult::NetworkError;
+      }
       // A per-list failure (deleted list, transient 5xx/429) skips that list
       // and keeps the tasks already collected from the others. Only an auth
       // failure aborts the whole fetch.
-      if (code == 401 || code == 403) return FetchResult::InvalidToken;
+      if (code == 401 || code == 403) {
+        logFetchErrorWithResponse("task_fetch", code, response);
+        return FetchResult::InvalidToken;
+      }
       if (code != 200) {
+        logFetchErrorWithResponse("task_fetch", code, response);
         LOG_ERR("MSTD", "Tasks HTTP %d for list; skipping", code);
         lastError = httpStatusToFetchResult(code);
         break;
       }
       anyListSucceeded = true;
       if (session.truncated()) {
+        logFetchError("task_fetch", "Response truncated at cap for list " + listId);
         LOG_ERR("MSTD", "Tasks page truncated; skipping rest of list");
         break;
       }
@@ -474,6 +506,7 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
       JsonDocument doc;
       auto parseErr = deserializeJson(doc, response);
       if (parseErr) {
+        logFetchError("task_fetch", std::string("JSON parse error: ") + parseErr.c_str() + " for list " + listId);
         LOG_ERR("MSTD", "Tasks JSON parse: %s; skipping list", parseErr.c_str());
         break;
       }
@@ -487,6 +520,7 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
   }
 
   if (!anyListSucceeded && lastError != FetchResult::Ok) {
+    logFetchError("task_fetch", "All lists failed");
     LOG_ERR("MSTD", "All lists failed");
     return lastError;
   }

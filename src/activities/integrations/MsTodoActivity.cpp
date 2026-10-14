@@ -160,22 +160,27 @@ void MsTodoActivity::loop() {
 }
 
 void MsTodoActivity::startFetch() {
+  MSTODO_CONFIG.appendLog("startFetch called");
   if (!MSTODO_CONFIG.hasTokens()) {
+    MSTODO_CONFIG.appendLog("No session; starting sign-in");
     LOG_DBG("MSTD", "No session; starting sign-in");
     beginSignIn();
     return;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    MSTODO_CONFIG.appendLog("Already connected to WiFi");
     LOG_DBG("MSTD", "Already connected to WiFi");
     proceedWithFetch();
     return;
   }
 
+  MSTODO_CONFIG.appendLog("Launching WifiSelectionActivity");
   LOG_DBG("MSTD", "Launching WifiSelectionActivity");
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
+                             MSTODO_CONFIG.appendLog("WiFi selection cancelled or failed");
                              _state = State::ShowingError;
                              _errorStrId = StrId::STR_MSTODO_OFFLINE;
                              requestUpdate();
@@ -230,6 +235,7 @@ void MsTodoActivity::beginSignIn() {
   using mstodo::AuthResult;
   AuthResult r = mstodo::MsTodoAuth::requestDeviceCode(MSTODO_CONFIG.getClientId(), _deviceCode);
   if (r != AuthResult::Ok) {
+    MSTODO_CONFIG.appendLog("Device code request failed: " + std::to_string(static_cast<int>(r)));
     _state = State::ShowingError;
     _errorStrId = StrId::STR_MSTODO_SIGNIN_FAILED;
     requestUpdate(true);
@@ -260,6 +266,7 @@ void MsTodoActivity::pollSignIn() {
       _nextPollMs = millis() + static_cast<unsigned long>(_pollIntervalSec) * 1000UL;
       return;
     case AuthResult::Ok: {
+      MSTODO_CONFIG.appendLog("Sign-in complete, tokens received");
       const long expiry = static_cast<long>(time(nullptr)) + expiresIn;
       MSTODO_CONFIG.setTokens(access, refresh, expiry);
       LOG_DBG("MSTD", "Sign-in complete");
@@ -267,16 +274,19 @@ void MsTodoActivity::pollSignIn() {
       return;
     }
     case AuthResult::Expired:
+      MSTODO_CONFIG.appendLog("Sign-in expired");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_EXPIRED;
       requestUpdate(true);
       return;
     case AuthResult::Declined:
+      MSTODO_CONFIG.appendLog("Sign-in declined by user");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_DECLINED;
       requestUpdate(true);
       return;
     default:
+      MSTODO_CONFIG.appendLog("Sign-in failed: " + std::to_string(static_cast<int>(r)));
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_FAILED;
       requestUpdate(true);
@@ -287,6 +297,10 @@ void MsTodoActivity::pollSignIn() {
 void MsTodoActivity::proceedWithFetch() {
   applyTimezone();
   ensureTimeSynced();
+
+  // Clear log at start of new fetch attempt
+  MSTODO_CONFIG.clearLog();
+  MSTODO_CONFIG.appendLog("Starting fetch attempt");
 
   using mstodo::AuthResult;
   using mstodo::FetchResult;
@@ -299,12 +313,14 @@ void MsTodoActivity::proceedWithFetch() {
     AuthResult ar = mstodo::MsTodoAuth::refreshTokens(MSTODO_CONFIG.getClientId(), MSTODO_CONFIG.getRefreshToken(),
                                                       access, refresh, expiresIn);
     if (ar == AuthResult::InvalidGrant) {
+      MSTODO_CONFIG.appendLog("Token refresh: InvalidGrant - restarting sign-in");
       LOG_DBG("MSTD", "Refresh rejected; restarting sign-in");
       MSTODO_CONFIG.signOut();
       beginSignIn();
       return;
     }
     if (ar != AuthResult::Ok) {
+      MSTODO_CONFIG.appendLog("Token refresh failed: " + std::to_string(static_cast<int>(ar)));
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_OFFLINE;
       requestUpdate(true);
@@ -312,15 +328,22 @@ void MsTodoActivity::proceedWithFetch() {
     }
     const long expiry = static_cast<long>(time(nullptr)) + expiresIn;
     MSTODO_CONFIG.setTokens(access, refresh, expiry);
+    MSTODO_CONFIG.appendLog("Token refreshed successfully");
   }
 
   // Get the device's configured timezone for converting UTC datetimes to local time
   const char* posixTz = timezones::table()[timezones::activeIndex()].posixTz;
+  MSTODO_CONFIG.appendLog(std::string("Using timezone: ") + (posixTz ? posixTz : "UTC"));
 
   mstodo::FetchOptions options;
   options.showOverdue = MSTODO_CONFIG.isShowOverdue();
   options.futureDays = MSTODO_CONFIG.getFutureDays();
   FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), options, _tasks, posixTz);
+
+  // Log fetch result for debugging
+  if (r != FetchResult::Ok) {
+    MSTODO_CONFIG.appendLog(std::string("Fetch failed with result: ") + std::to_string(static_cast<int>(r)));
+  }
 
   if (r == FetchResult::Ok) {
     time_t now = time(nullptr);
