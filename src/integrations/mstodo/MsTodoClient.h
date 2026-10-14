@@ -32,8 +32,11 @@ class MsTodoClient {
   // for it, so this walks every list. accessToken must be fresh. On success,
   // outTasks is filled (reserved to kMaxTasks) and sorted overdue-first then
   // by due date; the activity applies its own final ordering.
+  // posixTz: POSIX TZ string for the device's configured timezone (e.g., from
+  // timezones::table()[timezones::activeIndex()].posixTz). Used to convert
+  // UTC datetimes from Graph to local time for display.
   static FetchResult fetchPlanned(const std::string& accessToken, const FetchOptions& options,
-                                  std::vector<MsTodoTask>& outTasks);
+                                  std::vector<MsTodoTask>& outTasks, const char* posixTz);
 };
 
 }  // namespace mstodo

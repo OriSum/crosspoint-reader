@@ -209,6 +209,29 @@ it is set on device (Settings → MS To Do) or in `mstodo.json`.
 
 ---
 
+## Timezone handling
+
+Microsoft Graph returns all `dueDateTime` values in **UTC** (the `timeZone`
+field is always `"UTC"`). The device converts these to the **local timezone**
+configured in **Settings → System → Timezone** before displaying them.
+
+The conversion uses the POSIX TZ rule from the timezone table (e.g.,
+`CET-1CEST,M3.5.0,M10.5.0/3` for Central European Time with DST). This
+means:
+
+- Tasks due at midnight UTC may appear on the previous or next calendar day
+  depending on your timezone offset.
+- Daylight saving transitions are handled automatically by the POSIX TZ
+  rule — the same rule the device clock uses.
+- The `Updated HH:MM` timestamp in the activity header also reflects the
+  device's local time.
+
+If you change the timezone setting (Settings → System → Timezone), the next
+fetch will show tasks in the new local time. The sleep-screen snapshot is
+re-rendered on every fetch, so it always matches the current timezone.
+
+---
+
 ## Why the requests look the way they do
 
 This section records a Microsoft Graph quirk that shaped the client, so a

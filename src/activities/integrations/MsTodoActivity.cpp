@@ -18,6 +18,7 @@
 #include "integrations/mstodo/MsTodoConfig.h"
 #include "util/QrUtils.h"
 #include "util/ScreenshotUtil.h"
+#include "util/Timezones.h"
 
 namespace {
 
@@ -313,10 +314,13 @@ void MsTodoActivity::proceedWithFetch() {
     MSTODO_CONFIG.setTokens(access, refresh, expiry);
   }
 
+  // Get the device's configured timezone for converting UTC datetimes to local time
+  const char* posixTz = timezones::table()[timezones::activeIndex()].posixTz;
+
   mstodo::FetchOptions options;
   options.showOverdue = MSTODO_CONFIG.isShowOverdue();
   options.futureDays = MSTODO_CONFIG.getFutureDays();
-  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), options, _tasks);
+  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), options, _tasks, posixTz);
 
   if (r == FetchResult::Ok) {
     time_t now = time(nullptr);

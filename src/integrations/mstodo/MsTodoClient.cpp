@@ -101,19 +101,60 @@ std::string urlEncode(const std::string& s) {
   return out;
 }
 
-// Extracts HH:MM from a full ISO datetime ("YYYY-MM-DDTHH:MM:SS...") or
-// from a date-only ("YYYY-MM-DD"). Writes to out (size kDueTimeCapacity).
-// Empty out means "no time-of-day".
-void extractDueTime(const char* due, char* out, size_t outCap) {
-  if (outCap == 0) return;
-  out[0] = '\0';
-  if (!due) return;
-  const char* tPos = strchr(due, 'T');
-  if (!tPos) return;  // date-only, no time
-  // Want 5 chars after T: "HH:MM"
-  if (strlen(tPos + 1) < 5) return;
-  if (outCap < 6) return;
-  snprintf(out, outCap, "%c%c:%c%c", tPos[1], tPos[2], tPos[4], tPos[5]);
+// Parses an ISO 8601 datetime string (assumed to be in UTC, as returned by
+// Microsoft Graph with timeZone="UTC") and converts it to the specified
+// timezone. Writes the local date as "YYYY-MM-DD" to outDate (size 11) and
+// local time as "HH:MM" to outTime (size 6). Returns true on success.
+// If posixTz is nullptr, uses the current process TZ setting.
+bool parseUtcToLocal(const char* utcDateTime, char* outDate, size_t dateCap, char* outTime, size_t timeCap,
+                     const char* posixTz) {
+  if (!utcDateTime || dateCap < 11 || timeCap < 6) return false;
+
+  int y, mo, d, h, mi, s;
+  // Parse "YYYY-MM-DDTHH:MM:SS" (ignore fractional seconds and timezone suffix)
+  if (sscanf(utcDateTime, "%4d-%2d-%2dT%2d:%2d:%2d", &y, &mo, &d, &h, &mi, &s) != 6) {
+    return false;
+  }
+
+  // Build a UTC tm struct
+  struct tm utcTm = {};
+  utcTm.tm_year = y - 1900;
+  utcTm.tm_mon = mo - 1;
+  utcTm.tm_mday = d;
+  utcTm.tm_hour = h;
+  utcTm.tm_min = mi;
+  utcTm.tm_sec = s;
+  utcTm.tm_isdst = 0;
+
+  // Convert to time_t (UTC epoch). Use mktime after setting TZ to UTC to avoid
+  // any local timezone interference.
+  const char* tzBefore = getenv("TZ");
+  char savedTz[64] = {0};
+  if (tzBefore) snprintf(savedTz, sizeof(savedTz), "%s", tzBefore);
+
+  setenv("TZ", "UTC0", 1);
+  tzset();
+  time_t utcEpoch = mktime(&utcTm);
+
+  // Set the target timezone for localtime_r
+  if (posixTz && posixTz[0] != '\0') {
+    setenv("TZ", posixTz, 1);
+  } else if (savedTz[0]) {
+    setenv("TZ", savedTz, 1);
+  } else {
+    unsetenv("TZ");
+  }
+  tzset();
+
+  if (utcEpoch < 0) return false;
+
+  // Convert to local time using the target timezone
+  struct tm localTm;
+  localtime_r(&utcEpoch, &localTm);
+
+  strftime(outDate, dateCap, "%Y-%m-%d", &localTm);
+  strftime(outTime, timeCap, "%H:%M", &localTm);
+  return true;
 }
 
 // Returns true if the due date is strictly before today's date in the
@@ -259,7 +300,7 @@ class GraphSession {
 };
 
 // Appends the tasks in a Graph "value" array to outTasks, up to kMaxTasks.
-void parseTasks(JsonArray arr, std::vector<MsTodoTask>& outTasks) {
+void parseTasks(JsonArray arr, std::vector<MsTodoTask>& outTasks, const char* posixTz) {
   for (JsonObject task : arr) {
     if (outTasks.size() >= kMaxTasks) break;
     MsTodoTask t = {};
@@ -284,13 +325,11 @@ void parseTasks(JsonArray arr, std::vector<MsTodoTask>& outTasks) {
       dueDateTime = due["dateTime"] | static_cast<const char*>(nullptr);
     }
 
-    // Extract YYYY-MM-DD prefix and HH:MM after T
+    // Convert UTC datetime to local timezone
     t.dueDate[0] = '\0';
     t.dueTime[0] = '\0';
-    if (dueDateTime && strlen(dueDateTime) >= 10) {
-      memcpy(t.dueDate, dueDateTime, 10);
-      t.dueDate[10] = '\0';
-      extractDueTime(dueDateTime, t.dueTime, MsTodoTask::kDueTimeCapacity);
+    if (dueDateTime) {
+      parseUtcToLocal(dueDateTime, t.dueDate, MsTodoTask::kDueDateCapacity, t.dueTime, MsTodoTask::kDueTimeCapacity, posixTz);
     }
 
     t.overdue = isOverdue(t.dueDate);
@@ -311,7 +350,7 @@ void parseListIds(JsonArray arr, std::vector<std::string>& outIds) {
 }  // namespace
 
 FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const FetchOptions& options,
-                                       std::vector<MsTodoTask>& outTasks) {
+                                       std::vector<MsTodoTask>& outTasks, const char* posixTz) {
   outTasks.clear();
   outTasks.reserve(kMaxTasks);
 
@@ -439,7 +478,7 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
         break;
       }
 
-      parseTasks(doc["value"].as<JsonArray>(), outTasks);
+      parseTasks(doc["value"].as<JsonArray>(), outTasks, posixTz);
 
       const char* next = doc["@odata.nextLink"] | static_cast<const char*>(nullptr);
       url = next ? next : "";
