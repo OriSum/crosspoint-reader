@@ -18,7 +18,6 @@ enum class SettingAction {
   CustomiseStatusBar,
   ClockSettings,
   KOReaderSync,
-  TodoistSettings,
   MsTodoSettings,
   OPDSBrowser,
   Network,

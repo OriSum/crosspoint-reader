@@ -7,7 +7,7 @@
 // short arm going up-left and long arm going up-right.
 // Pre-rotated 90° CCW in source so it lands upright after drawIcon's blit
 // transform (lib/GfxRenderer/GfxRenderer.cpp:667).
-// Used for the Todoist menu entry on the home screen.
+// Used for the MS To Do menu entry on the home screen.
 static const uint8_t ChecklistIcon[] = {
     0xFF, 0xFF, 0xFF, 0xFF,  // row 0
     0xFF, 0xFF, 0xFF, 0xFF,  // row 1

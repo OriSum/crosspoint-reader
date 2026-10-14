@@ -21,7 +21,6 @@
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
 #include "integrations/MsTodoActivity.h"
-#include "integrations/TodoistActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
@@ -298,7 +297,6 @@ void ActivityManager::goToBrowser() {
   }
 }
 
-void ActivityManager::goToTodoist() { replaceActivity(std::make_unique<TodoistActivity>(renderer, mappedInput)); }
 void ActivityManager::goToMsTodo() { replaceActivity(std::make_unique<MsTodoActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToPlugins(bool showOpds) {
@@ -351,8 +349,6 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::FILE_TRANSFER;
     } else if (activityName == "Settings") {
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
-    } else if (activityName == "Todoist") {
-      initialMenuItem = HomeMenuItem::TODOIST;
     } else if (activityName == "MsTodo") {
       initialMenuItem = HomeMenuItem::MSTODO;
     }

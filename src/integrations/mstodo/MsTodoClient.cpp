@@ -40,8 +40,8 @@ constexpr int kTasksPageSize = 8;
 // and starve every other list: a single list contributes at most 32 tasks.
 constexpr int kMaxPagesPerList = 4;
 // 24 KB cap trades a higher steady-state footprint for predictability (same
-// rationale as Todoist's 16 KB cap). A page that still overflows is skipped
-// rather than aborting the whole fetch.
+// rationale as the removed Todoist client's 16 KB cap). A page that still
+// overflows is skipped rather than aborting the whole fetch.
 constexpr size_t kMaxResponseBytes = 24 * 1024;
 
 struct ResponseBuffer {
@@ -453,7 +453,6 @@ FetchResult MsTodoClient::fetchPlanned(const std::string& accessToken, const Fet
   }
 
   // Sort: overdue first (by date asc), then today/undated (by date asc), then future.
-  // Same comparator as TodoistClient.
   std::sort(outTasks.begin(), outTasks.end(), [](const MsTodoTask& a, const MsTodoTask& b) {
     if (a.overdue != b.overdue) return a.overdue;  // overdue first
     // Both overdue or both not: sort by dueDate (empty = no due date = last)
