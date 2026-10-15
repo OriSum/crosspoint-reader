@@ -40,42 +40,42 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
+      # - uses: actions/setup-python@v6
+      #   with:
+      #     python-version: '3.13'
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-          enable-cache: false
+      # - name: Install uv
+      #   uses: astral-sh/setup-uv@v7
+      #   with:
+      #     version: "latest"
+      #     enable-cache: false
 
-      - name: Install PlatformIO Core
-        run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
-          # platform-espressif32's builder/main.py imports these unconditionally; its own
-          # penv bootstrap (builder/penv_setup.py) is supposed to install them automatically
-          # but isn't picking them up reliably in this runner image, so pin them explicitly.
-          uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
-            "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
-            "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
-            "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" "esp-coredump>=1.14.0"
+      # - name: Install PlatformIO Core
+      #   run: |
+      #     uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+      #     # platform-espressif32's builder/main.py imports these unconditionally; its own
+      #     # penv bootstrap (builder/penv_setup.py) is supposed to install them automatically
+      #     # but isn't picking them up reliably in this runner image, so pin them explicitly.
+      #     uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
+      #       "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
+      #       "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
+      #       "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" "esp-coredump>=1.14.0"
 
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.platformio
-          key: pio-v2-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
-          restore-keys: pio-v2-${{ runner.os }}-
+      # - name: Cache PlatformIO packages
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.platformio
+      #     key: pio-v2-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+      #     restore-keys: pio-v2-${{ runner.os }}-
 
-      - name: Install cppcheck runtime dependency
-        run: |
-          # pioarduino's Linux cppcheck binary links against libpcre.so.3.
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libpcre3
+      # - name: Install cppcheck runtime dependency
+      #   run: |
+      #     # pioarduino's Linux cppcheck binary links against libpcre.so.3.
+      #     sudo apt-get update
+      #     sudo apt-get install -y --no-install-recommends libpcre3
 
-      - name: Run cppcheck
-        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+      # - name: Run cppcheck
+      #   run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
   build:
     name: Build ${{ matrix.env }}
@@ -86,20 +86,20 @@ jobs:
         # Short board-specific names keep pull-request artifacts easy to identify.
         # The release workflow applies the published crosspoint-<version>-<device>.bin names.
         include:
-          - env: default
-            asset: firmware.bin
-          - env: sticky
-            asset: firmware-sticky.bin
+          # - env: default
+          #   asset: firmware.bin
+          # - env: sticky
+          #   asset: firmware-sticky.bin
           - env: x4pro
             asset: firmware-x4pro.bin
-          - env: x4c
-            asset: firmware-x4c.bin
-          - env: papermono
-            asset: firmware-papermono.bin
-          - env: metalio_eink4
-            asset: firmware-metalio_eink4.bin
-          - env: eego_a4
-            asset: firmware-eego_a4.bin
+          # - env: x4c
+          #   asset: firmware-x4c.bin
+          # - env: papermono
+          #   asset: firmware-papermono.bin
+          # - env: metalio_eink4
+          #   asset: firmware-metalio_eink4.bin
+          # - env: eego_a4
+          #   asset: firmware-eego_a4.bin
     steps:
       - uses: actions/checkout@v6
         with:

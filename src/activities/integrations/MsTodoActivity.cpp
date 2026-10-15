@@ -18,6 +18,7 @@
 #include "integrations/mstodo/MsTodoConfig.h"
 #include "util/QrUtils.h"
 #include "util/ScreenshotUtil.h"
+#include "util/Timezones.h"
 
 namespace {
 
@@ -34,6 +35,7 @@ constexpr int kQrSize = 198;  // matches CrossPointWebServerActivity
 // in the v1 config, so "today" resolves against UTC — the device's own
 // timezone setting continues to govern everything outside this activity.
 void applyTimezone() {
+  MSTODO_CONFIG.appendLog("applyTimezone: setting TZ=UTC");
   setenv("TZ", "UTC", 1);
   tzset();
 }
@@ -53,10 +55,12 @@ void syncTimeWithNTP() {
     ++retry;
   }
   if (retry < 50) {
+    MSTODO_CONFIG.appendLog("NTP synced successfully");
     LOG_DBG("MSTD", "NTP synced");
     return;
   }
 
+  MSTODO_CONFIG.appendLog("NTP timeout, using build date for TLS validation");
   LOG_DBG("MSTD", "NTP timeout, using build date for TLS validation");
   struct tm tm = {};
   if (strptime(__DATE__ " " __TIME__, "%b %d %Y %H:%M:%S", &tm) != nullptr) {
@@ -64,6 +68,7 @@ void syncTimeWithNTP() {
     struct timeval tv = {.tv_sec = t, .tv_usec = 0};
     settimeofday(&tv, nullptr);
   } else {
+    MSTODO_CONFIG.appendLog("Build date parse failed; clock unset");
     LOG_ERR("MSTD", "Build date parse failed; clock unset");
   }
 }
@@ -98,6 +103,9 @@ void MsTodoActivity::onEnter() {
 
 void MsTodoActivity::onExit() {
   wifiOff();
+  // Restore system timezone in case the activity was exited mid-fetch
+  timezones::applyToClock();
+  MSTODO_CONFIG.appendLog("Restored system timezone on activity exit");
   // Restore orientation so HomeActivity (and its cached coverBuffer) are
   // displayed in the orientation they were rendered in.
   renderer.setOrientation(_entryOrientation);
@@ -159,22 +167,29 @@ void MsTodoActivity::loop() {
 }
 
 void MsTodoActivity::startFetch() {
+  MSTODO_CONFIG.appendLog("startFetch called");
   if (!MSTODO_CONFIG.hasTokens()) {
+    MSTODO_CONFIG.appendLog("No session; starting sign-in");
     LOG_DBG("MSTD", "No session; starting sign-in");
     beginSignIn();
     return;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    MSTODO_CONFIG.appendLog("Already connected to WiFi");
     LOG_DBG("MSTD", "Already connected to WiFi");
     proceedWithFetch();
     return;
   }
 
+  MSTODO_CONFIG.appendLog("Launching WifiSelectionActivity");
   LOG_DBG("MSTD", "Launching WifiSelectionActivity");
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
+                             MSTODO_CONFIG.appendLog("WiFi selection cancelled or failed");
+                             timezones::applyToClock();
+                             MSTODO_CONFIG.appendLog("Restored system timezone after WiFi selection failure");
                              _state = State::ShowingError;
                              _errorStrId = StrId::STR_MSTODO_OFFLINE;
                              requestUpdate();
@@ -200,10 +215,12 @@ void MsTodoActivity::ensureTimeSynced() {
     if (rtcEpoch > 0) {
       struct timeval tv = {.tv_sec = rtcEpoch, .tv_usec = 0};
       settimeofday(&tv, nullptr);
+      MSTODO_CONFIG.appendLog("System clock set from hardware RTC");
       LOG_DBG("MSTD", "System clock set from hardware RTC");
       return;
     }
   }
+  MSTODO_CONFIG.appendLog("RTC not available or failed, falling back to NTP");
   syncTimeWithNTP();
 }
 
@@ -229,6 +246,9 @@ void MsTodoActivity::beginSignIn() {
   using mstodo::AuthResult;
   AuthResult r = mstodo::MsTodoAuth::requestDeviceCode(MSTODO_CONFIG.getClientId(), _deviceCode);
   if (r != AuthResult::Ok) {
+    MSTODO_CONFIG.appendLog("Device code request failed: " + std::to_string(static_cast<int>(r)));
+    timezones::applyToClock();
+    MSTODO_CONFIG.appendLog("Restored system timezone after device code failure");
     _state = State::ShowingError;
     _errorStrId = StrId::STR_MSTODO_SIGNIN_FAILED;
     requestUpdate(true);
@@ -259,23 +279,36 @@ void MsTodoActivity::pollSignIn() {
       _nextPollMs = millis() + static_cast<unsigned long>(_pollIntervalSec) * 1000UL;
       return;
     case AuthResult::Ok: {
+      MSTODO_CONFIG.appendLog("Sign-in complete, tokens received");
       const long expiry = static_cast<long>(time(nullptr)) + expiresIn;
       MSTODO_CONFIG.setTokens(access, refresh, expiry);
       LOG_DBG("MSTD", "Sign-in complete");
+      // Restore system timezone after sign-in (applyTimezone set it to UTC)
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in");
       proceedWithFetch();
       return;
     }
     case AuthResult::Expired:
+      MSTODO_CONFIG.appendLog("Sign-in expired");
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in expiry");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_EXPIRED;
       requestUpdate(true);
       return;
     case AuthResult::Declined:
+      MSTODO_CONFIG.appendLog("Sign-in declined by user");
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in declined");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_DECLINED;
       requestUpdate(true);
       return;
     default:
+      MSTODO_CONFIG.appendLog("Sign-in failed: " + std::to_string(static_cast<int>(r)));
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in failure");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_FAILED;
       requestUpdate(true);
@@ -286,6 +319,10 @@ void MsTodoActivity::pollSignIn() {
 void MsTodoActivity::proceedWithFetch() {
   applyTimezone();
   ensureTimeSynced();
+
+  // Clear log at start of new fetch attempt
+  MSTODO_CONFIG.clearLog();
+  MSTODO_CONFIG.appendLog("Starting fetch attempt");
 
   using mstodo::AuthResult;
   using mstodo::FetchResult;
@@ -298,12 +335,14 @@ void MsTodoActivity::proceedWithFetch() {
     AuthResult ar = mstodo::MsTodoAuth::refreshTokens(MSTODO_CONFIG.getClientId(), MSTODO_CONFIG.getRefreshToken(),
                                                       access, refresh, expiresIn);
     if (ar == AuthResult::InvalidGrant) {
+      MSTODO_CONFIG.appendLog("Token refresh: InvalidGrant - restarting sign-in");
       LOG_DBG("MSTD", "Refresh rejected; restarting sign-in");
       MSTODO_CONFIG.signOut();
       beginSignIn();
       return;
     }
     if (ar != AuthResult::Ok) {
+      MSTODO_CONFIG.appendLog("Token refresh failed: " + std::to_string(static_cast<int>(ar)));
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_OFFLINE;
       requestUpdate(true);
@@ -311,12 +350,29 @@ void MsTodoActivity::proceedWithFetch() {
     }
     const long expiry = static_cast<long>(time(nullptr)) + expiresIn;
     MSTODO_CONFIG.setTokens(access, refresh, expiry);
+    MSTODO_CONFIG.appendLog("Token refreshed successfully");
   }
+
+  // Get the device's configured timezone for converting UTC datetimes to local time
+  uint8_t activeIdx = timezones::activeIndex();
+  const char* posixTz = timezones::table()[activeIdx].posixTz;
+  const char* tzName = timezones::table()[activeIdx].name;
+  int stdOffsetQ = timezones::table()[activeIdx].stdOffsetQ;
+  MSTODO_CONFIG.appendLog(std::string("Using timezone: idx=") + std::to_string(activeIdx) +
+                          " name=" + (tzName ? tzName : "NULL") + " posixTz=" + (posixTz ? posixTz : "NULL") +
+                          " stdOffsetQ=" + std::to_string(stdOffsetQ));
+  MSTODO_CONFIG.appendLog(std::string("clockTimezone setting: ") + std::to_string(SETTINGS.clockTimezone) +
+                          " clockDst setting: " + std::to_string(SETTINGS.clockDst));
 
   mstodo::FetchOptions options;
   options.showOverdue = MSTODO_CONFIG.isShowOverdue();
   options.futureDays = MSTODO_CONFIG.getFutureDays();
-  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), options, _tasks);
+  FetchResult r = mstodo::MsTodoClient::fetchPlanned(MSTODO_CONFIG.getAccessToken(), options, _tasks, posixTz);
+
+  // Log fetch result for debugging
+  if (r != FetchResult::Ok) {
+    MSTODO_CONFIG.appendLog(std::string("Fetch failed with result: ") + std::to_string(static_cast<int>(r)));
+  }
 
   if (r == FetchResult::Ok) {
     time_t now = time(nullptr);
@@ -328,11 +384,12 @@ void MsTodoActivity::proceedWithFetch() {
 
     // Chronological sort: oldest overdue first, then today's timed tasks in
     // ascending time, then today's untimed tasks last.
+    // Treat "00:00" as no specific time (all-day task).
     std::sort(_tasks.begin(), _tasks.end(), [](const mstodo::MsTodoTask& a, const mstodo::MsTodoTask& b) {
       int dateCmp = strcmp(a.dueDate, b.dueDate);
       if (dateCmp != 0) return dateCmp < 0;
-      bool aTimed = a.dueTime[0] != '\0';
-      bool bTimed = b.dueTime[0] != '\0';
+      bool aTimed = a.dueTime[0] != '\0' && strcmp(a.dueTime, "00:00") != 0;
+      bool bTimed = b.dueTime[0] != '\0' && strcmp(b.dueTime, "00:00") != 0;
       if (aTimed != bTimed) return aTimed;  // timed first
       if (aTimed) return strcmp(a.dueTime, b.dueTime) < 0;
       return false;  // both untimed: stable order
@@ -343,6 +400,12 @@ void MsTodoActivity::proceedWithFetch() {
     _selectedIndex = 0;
     _lastVisibleIndex = -1;
     captureSnapshotIfNeeded();
+
+    // Restore the system timezone (HalClock) after fetch, in case the process
+    // TZ was left in a different state. This ensures the device clock display
+    // uses the correct timezone (respecting clockDst setting).
+    timezones::applyToClock();
+    MSTODO_CONFIG.appendLog("Restored system timezone via timezones::applyToClock()");
   } else if (r == FetchResult::InvalidToken) {
     // Graph rejected the token even though the clock said it was valid
     // (revoked, or a clock skew the refresh could not fix). Clear the session
@@ -355,6 +418,9 @@ void MsTodoActivity::proceedWithFetch() {
     _state = State::ShowingError;
     _errorStrId = fetchResultToStrId(r);
   }
+  // Restore the system timezone (HalClock) after fetch attempt, even on error.
+  timezones::applyToClock();
+  MSTODO_CONFIG.appendLog("Restored system timezone via timezones::applyToClock()");
   requestUpdate(true);
 }
 
@@ -565,7 +631,9 @@ void MsTodoActivity::drawTaskRows(int contentTop, int contentHeight, int tileX, 
     const bool showDate = t.dueDate[0] != '\0';
 
     char fullTitle[128];
-    snprintf(fullTitle, sizeof(fullTitle), "%s%s%s", t.dueTime[0] ? t.dueTime : "", t.dueTime[0] ? "  " : "", t.title);
+    // Treat "00:00" as no specific time (all-day task), don't display it
+    const bool hasTime = t.dueTime[0] != '\0' && strcmp(t.dueTime, "00:00") != 0;
+    snprintf(fullTitle, sizeof(fullTitle), "%s%s%s", hasTime ? t.dueTime : "", hasTime ? "  " : "", t.title);
 
     const int rowTextWidth = showDate ? textWidth - dateColWidth - kDateGap : textWidth;
     auto lines = renderer.wrappedText(UI_10_FONT_ID, fullTitle, rowTextWidth, kMaxLines);
