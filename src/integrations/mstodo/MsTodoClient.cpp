@@ -11,8 +11,8 @@
 #include <cstring>
 #include <ctime>
 
-#include "util/TaskWatchdog.h"
 #include "MsTodoConfig.h"
+#include "util/TaskWatchdog.h"
 
 namespace mstodo {
 
@@ -362,7 +362,8 @@ void parseTasks(JsonArray arr, std::vector<MsTodoTask>& outTasks, const char* po
     t.dueDate[0] = '\0';
     t.dueTime[0] = '\0';
     if (dueDateTime) {
-      parseUtcToLocal(dueDateTime, t.dueDate, MsTodoTask::kDueDateCapacity, t.dueTime, MsTodoTask::kDueTimeCapacity, posixTz);
+      parseUtcToLocal(dueDateTime, t.dueDate, MsTodoTask::kDueDateCapacity, t.dueTime, MsTodoTask::kDueTimeCapacity,
+                      posixTz);
     }
 
     t.overdue = isOverdue(t.dueDate);
