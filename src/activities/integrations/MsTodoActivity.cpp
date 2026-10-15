@@ -384,11 +384,12 @@ void MsTodoActivity::proceedWithFetch() {
 
     // Chronological sort: oldest overdue first, then today's timed tasks in
     // ascending time, then today's untimed tasks last.
+    // Treat "00:00" as no specific time (all-day task).
     std::sort(_tasks.begin(), _tasks.end(), [](const mstodo::MsTodoTask& a, const mstodo::MsTodoTask& b) {
       int dateCmp = strcmp(a.dueDate, b.dueDate);
       if (dateCmp != 0) return dateCmp < 0;
-      bool aTimed = a.dueTime[0] != '\0';
-      bool bTimed = b.dueTime[0] != '\0';
+      bool aTimed = a.dueTime[0] != '\0' && strcmp(a.dueTime, "00:00") != 0;
+      bool bTimed = b.dueTime[0] != '\0' && strcmp(b.dueTime, "00:00") != 0;
       if (aTimed != bTimed) return aTimed;  // timed first
       if (aTimed) return strcmp(a.dueTime, b.dueTime) < 0;
       return false;  // both untimed: stable order
@@ -630,7 +631,9 @@ void MsTodoActivity::drawTaskRows(int contentTop, int contentHeight, int tileX, 
     const bool showDate = t.dueDate[0] != '\0';
 
     char fullTitle[128];
-    snprintf(fullTitle, sizeof(fullTitle), "%s%s%s", t.dueTime[0] ? t.dueTime : "", t.dueTime[0] ? "  " : "", t.title);
+    // Treat "00:00" as no specific time (all-day task), don't display it
+    const bool hasTime = t.dueTime[0] != '\0' && strcmp(t.dueTime, "00:00") != 0;
+    snprintf(fullTitle, sizeof(fullTitle), "%s%s%s", hasTime ? t.dueTime : "", hasTime ? "  " : "", t.title);
 
     const int rowTextWidth = showDate ? textWidth - dateColWidth - kDateGap : textWidth;
     auto lines = renderer.wrappedText(UI_10_FONT_ID, fullTitle, rowTextWidth, kMaxLines);
