@@ -179,9 +179,8 @@ bool parseUtcToLocal(const char* utcDateTime, char* outDate, size_t dateCap, cha
   if (logCount <= 3) {
     char logMsg[128];
     snprintf(logMsg, sizeof(logMsg), "TZ_CONV_RESULT: utc=%04d-%02d-%02dT%02d:%02d:%02d local=%04d-%02d-%02dT%02d:%02d",
-             y, mo, d, h, mi, s,
-             localTm.tm_year + 1900, localTm.tm_mon + 1, localTm.tm_mday,
-             localTm.tm_hour, localTm.tm_min);
+             y, mo, d, h, mi, s, localTm.tm_year + 1900, localTm.tm_mon + 1, localTm.tm_mday, localTm.tm_hour,
+             localTm.tm_min);
     MsTodoConfig::getInstance().appendLog(logMsg);
   }
 

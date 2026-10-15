@@ -358,11 +358,10 @@ void MsTodoActivity::proceedWithFetch() {
   const char* posixTz = timezones::table()[activeIdx].posixTz;
   const char* tzName = timezones::table()[activeIdx].name;
   int stdOffsetQ = timezones::table()[activeIdx].stdOffsetQ;
-  MSTODO_CONFIG.appendLog(std::string("Using timezone: idx=") + std::to_string(activeIdx) + 
-                          " name=" + (tzName ? tzName : "NULL") + 
-                          " posixTz=" + (posixTz ? posixTz : "NULL") + 
+  MSTODO_CONFIG.appendLog(std::string("Using timezone: idx=") + std::to_string(activeIdx) +
+                          " name=" + (tzName ? tzName : "NULL") + " posixTz=" + (posixTz ? posixTz : "NULL") +
                           " stdOffsetQ=" + std::to_string(stdOffsetQ));
-  MSTODO_CONFIG.appendLog(std::string("clockTimezone setting: ") + std::to_string(SETTINGS.clockTimezone) + 
+  MSTODO_CONFIG.appendLog(std::string("clockTimezone setting: ") + std::to_string(SETTINGS.clockTimezone) +
                           " clockDst setting: " + std::to_string(SETTINGS.clockDst));
 
   mstodo::FetchOptions options;
