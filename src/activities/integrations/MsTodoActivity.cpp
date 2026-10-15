@@ -103,6 +103,9 @@ void MsTodoActivity::onEnter() {
 
 void MsTodoActivity::onExit() {
   wifiOff();
+  // Restore system timezone in case the activity was exited mid-fetch
+  timezones::applyToClock();
+  MSTODO_CONFIG.appendLog("Restored system timezone on activity exit");
   // Restore orientation so HomeActivity (and its cached coverBuffer) are
   // displayed in the orientation they were rendered in.
   renderer.setOrientation(_entryOrientation);
@@ -185,6 +188,8 @@ void MsTodoActivity::startFetch() {
                          [this](const ActivityResult& result) {
                            if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
                              MSTODO_CONFIG.appendLog("WiFi selection cancelled or failed");
+                             timezones::applyToClock();
+                             MSTODO_CONFIG.appendLog("Restored system timezone after WiFi selection failure");
                              _state = State::ShowingError;
                              _errorStrId = StrId::STR_MSTODO_OFFLINE;
                              requestUpdate();
@@ -242,6 +247,8 @@ void MsTodoActivity::beginSignIn() {
   AuthResult r = mstodo::MsTodoAuth::requestDeviceCode(MSTODO_CONFIG.getClientId(), _deviceCode);
   if (r != AuthResult::Ok) {
     MSTODO_CONFIG.appendLog("Device code request failed: " + std::to_string(static_cast<int>(r)));
+    timezones::applyToClock();
+    MSTODO_CONFIG.appendLog("Restored system timezone after device code failure");
     _state = State::ShowingError;
     _errorStrId = StrId::STR_MSTODO_SIGNIN_FAILED;
     requestUpdate(true);
@@ -276,23 +283,32 @@ void MsTodoActivity::pollSignIn() {
       const long expiry = static_cast<long>(time(nullptr)) + expiresIn;
       MSTODO_CONFIG.setTokens(access, refresh, expiry);
       LOG_DBG("MSTD", "Sign-in complete");
+      // Restore system timezone after sign-in (applyTimezone set it to UTC)
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in");
       proceedWithFetch();
       return;
     }
     case AuthResult::Expired:
       MSTODO_CONFIG.appendLog("Sign-in expired");
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in expiry");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_EXPIRED;
       requestUpdate(true);
       return;
     case AuthResult::Declined:
       MSTODO_CONFIG.appendLog("Sign-in declined by user");
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in declined");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_DECLINED;
       requestUpdate(true);
       return;
     default:
       MSTODO_CONFIG.appendLog("Sign-in failed: " + std::to_string(static_cast<int>(r)));
+      timezones::applyToClock();
+      MSTODO_CONFIG.appendLog("Restored system timezone after sign-in failure");
       _state = State::ShowingError;
       _errorStrId = StrId::STR_MSTODO_SIGNIN_FAILED;
       requestUpdate(true);
@@ -384,6 +400,12 @@ void MsTodoActivity::proceedWithFetch() {
     _selectedIndex = 0;
     _lastVisibleIndex = -1;
     captureSnapshotIfNeeded();
+
+    // Restore the system timezone (HalClock) after fetch, in case the process
+    // TZ was left in a different state. This ensures the device clock display
+    // uses the correct timezone (respecting clockDst setting).
+    timezones::applyToClock();
+    MSTODO_CONFIG.appendLog("Restored system timezone via timezones::applyToClock()");
   } else if (r == FetchResult::InvalidToken) {
     // Graph rejected the token even though the clock said it was valid
     // (revoked, or a clock skew the refresh could not fix). Clear the session
@@ -396,6 +418,9 @@ void MsTodoActivity::proceedWithFetch() {
     _state = State::ShowingError;
     _errorStrId = fetchResultToStrId(r);
   }
+  // Restore the system timezone (HalClock) after fetch attempt, even on error.
+  timezones::applyToClock();
+  MSTODO_CONFIG.appendLog("Restored system timezone via timezones::applyToClock()");
   requestUpdate(true);
 }
 
