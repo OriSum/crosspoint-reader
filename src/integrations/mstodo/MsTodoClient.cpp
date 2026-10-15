@@ -155,20 +155,35 @@ bool parseUtcToLocal(const char* utcDateTime, char* outDate, size_t dateCap, cha
   time_t utcEpoch = mktime(&utcTm);
 
   // Set the target timezone for localtime_r
-  if (posixTz && posixTz[0] != '\0') {
-    setenv("TZ", posixTz, 1);
-  } else if (savedTz[0]) {
-    setenv("TZ", savedTz, 1);
-  } else {
-    unsetenv("TZ");
-  }
+  const char* tzToUse = (posixTz && posixTz[0] != '\0') ? posixTz : (savedTz[0] ? savedTz : "UTC0");
+  setenv("TZ", tzToUse, 1);
   tzset();
+
+  // Log the timezone being used for debugging (first few calls only)
+  static int logCount = 0;
+  if (logCount < 3) {
+    char logMsg[128];
+    snprintf(logMsg, sizeof(logMsg), "TZ_CONV: posixTz=%s savedTz=%s tzToUse=%s utcEpoch=%ld",
+             posixTz ? posixTz : "NULL", savedTz[0] ? savedTz : "NULL", tzToUse, static_cast<long>(utcEpoch));
+    MsTodoConfig::getInstance().appendLog(logMsg);
+    logCount++;
+  }
 
   if (utcEpoch < 0) return false;
 
   // Convert to local time using the target timezone
   struct tm localTm;
   localtime_r(&utcEpoch, &localTm);
+
+  // Log the conversion result for debugging
+  if (logCount <= 3) {
+    char logMsg[128];
+    snprintf(logMsg, sizeof(logMsg), "TZ_CONV_RESULT: utc=%04d-%02d-%02dT%02d:%02d:%02d local=%04d-%02d-%02dT%02d:%02d",
+             y, mo, d, h, mi, s,
+             localTm.tm_year + 1900, localTm.tm_mon + 1, localTm.tm_mday,
+             localTm.tm_hour, localTm.tm_min);
+    MsTodoConfig::getInstance().appendLog(logMsg);
+  }
 
   strftime(outDate, dateCap, "%Y-%m-%d", &localTm);
   strftime(outTime, timeCap, "%H:%M", &localTm);

@@ -35,6 +35,7 @@ constexpr int kQrSize = 198;  // matches CrossPointWebServerActivity
 // in the v1 config, so "today" resolves against UTC — the device's own
 // timezone setting continues to govern everything outside this activity.
 void applyTimezone() {
+  MSTODO_CONFIG.appendLog("applyTimezone: setting TZ=UTC");
   setenv("TZ", "UTC", 1);
   tzset();
 }
@@ -54,10 +55,12 @@ void syncTimeWithNTP() {
     ++retry;
   }
   if (retry < 50) {
+    MSTODO_CONFIG.appendLog("NTP synced successfully");
     LOG_DBG("MSTD", "NTP synced");
     return;
   }
 
+  MSTODO_CONFIG.appendLog("NTP timeout, using build date for TLS validation");
   LOG_DBG("MSTD", "NTP timeout, using build date for TLS validation");
   struct tm tm = {};
   if (strptime(__DATE__ " " __TIME__, "%b %d %Y %H:%M:%S", &tm) != nullptr) {
@@ -65,6 +68,7 @@ void syncTimeWithNTP() {
     struct timeval tv = {.tv_sec = t, .tv_usec = 0};
     settimeofday(&tv, nullptr);
   } else {
+    MSTODO_CONFIG.appendLog("Build date parse failed; clock unset");
     LOG_ERR("MSTD", "Build date parse failed; clock unset");
   }
 }
@@ -206,10 +210,12 @@ void MsTodoActivity::ensureTimeSynced() {
     if (rtcEpoch > 0) {
       struct timeval tv = {.tv_sec = rtcEpoch, .tv_usec = 0};
       settimeofday(&tv, nullptr);
+      MSTODO_CONFIG.appendLog("System clock set from hardware RTC");
       LOG_DBG("MSTD", "System clock set from hardware RTC");
       return;
     }
   }
+  MSTODO_CONFIG.appendLog("RTC not available or failed, falling back to NTP");
   syncTimeWithNTP();
 }
 
@@ -332,8 +338,16 @@ void MsTodoActivity::proceedWithFetch() {
   }
 
   // Get the device's configured timezone for converting UTC datetimes to local time
-  const char* posixTz = timezones::table()[timezones::activeIndex()].posixTz;
-  MSTODO_CONFIG.appendLog(std::string("Using timezone: ") + (posixTz ? posixTz : "UTC"));
+  uint8_t activeIdx = timezones::activeIndex();
+  const char* posixTz = timezones::table()[activeIdx].posixTz;
+  const char* tzName = timezones::table()[activeIdx].name;
+  int stdOffsetQ = timezones::table()[activeIdx].stdOffsetQ;
+  MSTODO_CONFIG.appendLog(std::string("Using timezone: idx=") + std::to_string(activeIdx) + 
+                          " name=" + (tzName ? tzName : "NULL") + 
+                          " posixTz=" + (posixTz ? posixTz : "NULL") + 
+                          " stdOffsetQ=" + std::to_string(stdOffsetQ));
+  MSTODO_CONFIG.appendLog(std::string("clockTimezone setting: ") + std::to_string(SETTINGS.clockTimezone) + 
+                          " clockDst setting: " + std::to_string(SETTINGS.clockDst));
 
   mstodo::FetchOptions options;
   options.showOverdue = MSTODO_CONFIG.isShowOverdue();
